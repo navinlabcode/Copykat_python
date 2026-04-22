@@ -1,2 +1,0 @@
-[console_scripts]
-copykat-py = copykat_py.cli:main
