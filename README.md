@@ -1,62 +1,80 @@
-# CopyKAT-Py: Python Implementation of CopyKAT
+# CopyKAT-Python
 
-A robust, high-efficiency Python implementation of CopyKAT (Copynumber Karyotyping of Aneuploid Tumors) 
-for inferring genomic copy number profiles from single-cell RNA-seq data.
+CopyKAT-Python is a Python implementation of the CopyKAT workflow for inferring large-scale copy number alterations from single-cell RNA-seq data. It is designed for Python-based single-cell analysis pipelines and aims to improve usability, scalability, and integration with modern `AnnData`/`Scanpy` workflows.
 
-## Key Improvements over R version
+## Why CopyKAT-Python?
 
-- **No cell limit**: Overcomes the R `hclust` 65,536 cell barrier using mini-batch and approximate methods
-- **Faster execution**: Leverages NumPy vectorization, sparse matrices, and multiprocessing
-- **Same algorithm**: Faithfully reimplements the Bayesian segmentation approach (FTT → DLM smoothing → GMM baseline → MCMC/KS segmentation)
+The original CopyKAT-R package is widely used for distinguishing aneuploid tumor cells from diploid normal cells using scRNA-seq data. However, users have reported practical limitations when applying CopyKAT-R to large modern datasets.
+
+Open GitHub issues in the original CopyKAT repository highlight several recurring needs:
+
+- Long runtime, including reports of >1 hour for ~8,000 cells.
+- Difficulty running very large datasets, including hundreds of thousands to millions of cells.
+
+CopyKAT-Python was developed to address these practical issues while preserving the main biological idea of CopyKAT: large-scale chromosomal expression patterns can be used to infer copy number profiles and separate malignant from non-malignant cells.
+
+## What Is Improved?
+
+Compared with CopyKAT-R, CopyKAT-Python focuses on:
+
+- Native Python workflow support.
+- Easier integration with `AnnData`, `Scanpy`, and Python pipelines.
+- Improved handling of large datasets.
+- More transparent intermediate outputs.
+- Clearer confidence reporting for uncertain cells.
+- More flexible downstream use of CNV matrices and cell-level annotations.
+- Better reproducibility through Python package management and scripted workflows.
+
+CopyKAT-Python is not intended to be a line-by-line clone of CopyKAT-R. It is a Python reimplementation designed to reproduce the core CopyKAT strategy while improving scalability and usability.
+
+## Confidence of Results
+
+CopyKAT-Python reports tumor/normal predictions together with confidence-related outputs. High-confidence results usually show clear chromosome-arm or whole-chromosome CNV patterns, consistent CNV profiles within clusters, and strong separation between inferred diploid and aneuploid cells.
+
+Lower-confidence results may occur in samples with weak CNV signal, low sequencing depth, few normal reference cells, strong batch effects, or tumors with near-diploid genomes.
+
+## Why Results May Differ from CopyKAT-R
+
+CopyKAT-Python results may not be identical to CopyKAT-R because of differences in:
+
+- Gene annotation versions.
+- Filtering and preprocessing.
+- Numerical implementation.
+- Smoothing and segmentation details.
+- Clustering behavior and random seeds.
+- Handling of uncertain or `not.defined` cells.
+
+These differences are expected for an independent Python implementation.
+
+## Figures and Tables to Add
+
+### Figure 1. Workflow overview
+
+Input expression matrix → gene genomic ordering → smoothing → CNV inference → clustering → tumor/normal prediction.
+
+### Figure 2. Example CNV heatmap
+
+Show inferred CNV profiles across chromosomes with cells grouped by predicted tumor/normal status.
+
+### Figure 3. CopyKAT-R vs CopyKAT-Python comparison
+
+Show side-by-side CNV heatmaps or classification agreement on the same dataset.
+
+### Table 1. Runtime and scalability benchmark
+
+| Dataset | Cells | Genes | CopyKAT-R runtime | CopyKAT-Python runtime | Notes |
+|---|---:|---:|---:|---:|---|
+| TODO | TODO | TODO | TODO | TODO | TODO |
+
+### Table 2. Classification concordance
+
+| Dataset | Tumor/normal agreement | Aneuploid agreement | Diploid agreement | Uncertain cells | Notes |
+|---|---:|---:|---:|---:|---|
+| TODO | TODO | TODO | TODO | TODO | TODO |
 
 ## Installation
 
 ```bash
-conda env create -f environment.yml
-conda activate copykat_py
+git clone https://github.com/NavinLab/copykat-python.git
+cd copykat-python
 pip install -e .
-```
-
-## Quick Start
-
-```python
-import copykat_py
-
-results = copykat_py.copykat(
-    rawmat="path/to/matrix.mtx",     # or a pandas DataFrame / scipy sparse matrix
-    id_type="S",                      # "S" for Symbol, "E" for Ensembl
-    genome="hg20",
-    n_cores=8,
-    sam_name="test",
-)
-
-# Access results
-predictions = results["prediction"]       # DataFrame: cell.names, copykat.pred
-cna_mat = results["CNAmat"]               # DataFrame: chrom, chrompos, abspos, cell1, cell2, ...
-```
-
-## Parameters
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| rawmat | required | UMI count matrix (genes×cells), DataFrame, sparse matrix, or path |
-| id_type | "S" | Gene ID type: "S" (Symbol) or "E" (Ensembl) |
-| cell_line | "no" | "yes" for pure cell line data |
-| ngene_chr | 5 | Min genes per chromosome for cell filtering |
-| LOW_DR | 0.05 | Min gene detection rate for smoothing |
-| UP_DR | 0.1 | Min gene detection rate for segmentation |
-| win_size | 25 | Window size for segmentation |
-| norm_cell_names | "" | Known normal cell barcodes (list or "") |
-| KS_cut | 0.1 | KS test cutoff for breakpoint calling |
-| sam_name | "" | Sample name prefix for output files |
-| distance | "euclidean" | Distance metric: "euclidean", "pearson", "spearman" |
-| n_cores | 1 | Number of CPU cores |
-| genome | "hg20" | Genome: "hg20" or "mm10" |
-| output_seg | False | Output .seg file for IGV |
-| plot_genes | True | Plot gene-level heatmap |
-| min_gene_per_cell | 200 | Minimum genes per cell |
-
-## Reference
-
-Gao, R., et al. "Delineating copy number and clonal substructure in human tumors from single-cell transcriptomes." 
-Nature Biotechnology 39, 599–608 (2021).
