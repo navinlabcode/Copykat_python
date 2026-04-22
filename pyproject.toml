@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "copykat-py"
+version = "1.0.0"
+description = "Python implementation of CopyKAT: Copynumber Karyotyping of Aneuploid Tumors from scRNA-seq data"
+readme = "README.md"
+license = {text = "GPL-2.0"}
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.7",
+    "pandas>=1.3",
+    "scikit-learn>=1.0",
+    "matplotlib>=3.4",
+    "seaborn>=0.11",
+    "joblib>=1.1",
+    "tqdm>=4.62",
+    "fastcluster>=1.3.0",
+]
+
+[project.optional-dependencies]
+large-datasets = ["fastcluster>=1.3.0"]
+all = ["fastcluster>=1.3.0"]
+
+[project.scripts]
+copykat-py = "copykat_py.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["copykat_py*"]
+
+[tool.setuptools.package-data]
+"copykat_py" = ["data/*.csv", "data/*.mtx", "data/*.txt"]
