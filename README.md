@@ -3,7 +3,7 @@
 CopyKAT-Python is a Python reimplementation of the [CopyKAT](https://github.com/navinlabcode/copykat) workflow for inferring large-scale copy number alterations (CNAs) from single-cell RNA-seq data. It is designed to reproduce the core CopyKAT strategy while improving scalability, usability, and integration with modern `AnnData`/`Scanpy` pipelines.
 
 **Highlights:**
-- Handles datasets from thousands to hundreds of thousands of cells
+- Handles datasets from thousands to hundreds of thousands of cells with significantly faster speed
 - Identical core parameters as CopyKAT-R with convenient Python improvements
 - Pre-built Singularity container for reproducible deployment
 - Validated across 16 human and mouse 10X datasets and a 170k-cell Xenium dataset
