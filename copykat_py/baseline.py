@@ -27,6 +27,9 @@ _LAST_CLUSTER_INFO = {
     "engine": "scipy.linkage",
 }
 
+FULL_CLUSTER_MAX_CELLS = 2000
+ADAPTIVE_PCA_COMPONENTS = 512
+
 
 def get_last_cluster_info():
     return dict(_LAST_CLUSTER_INFO)
@@ -37,12 +40,12 @@ def _cluster_sizes(labels):
     return counts
 
 
-def _reduce_for_clustering(data):
+def _reduce_for_clustering(data, max_components=64):
     n_samples, n_features = data.shape
-    if n_samples < 2000 or n_features <= 256:
+    if n_samples <= FULL_CLUSTER_MAX_CELLS or n_features <= 256:
         return data, None
 
-    n_components = min(64, n_samples - 1, n_features)
+    n_components = min(max_components, n_samples - 1, n_features)
     if n_components < 8:
         return data, None
 
@@ -50,7 +53,16 @@ def _reduce_for_clustering(data):
     return reducer.fit_transform(data), n_components
 
 
-def _hierarchical_cluster(data, n_clusters, method="ward", metric="euclidean", max_cells=65536, n_cores=1):
+def _hierarchical_cluster(
+    data,
+    n_clusters,
+    method="ward",
+    metric="euclidean",
+    max_cells=65536,
+    n_cores=1,
+    reduce=True,
+    pca_components=64,
+):
     """Hierarchical clustering with fastcluster-first execution.
 
     For Ward + Euclidean clustering, prefer ``fastcluster.linkage_vector``
@@ -72,6 +84,12 @@ def _hierarchical_cluster(data, n_clusters, method="ward", metric="euclidean", m
     max_cells : int
         Retained for backward compatibility; no longer used as a fastcluster
         cutoff.
+    reduce : bool
+        Whether to apply PCA reduction for large Ward/Euclidean clustering.
+        Set to False for R-compatibility paths that should cluster the full
+        cells × features matrix through an explicit distance object.
+    pca_components : int
+        Maximum number of PCA components to retain when reduction is enabled.
     
     Returns
     -------
@@ -89,14 +107,35 @@ def _hierarchical_cluster(data, n_clusters, method="ward", metric="euclidean", m
         "engine": "scipy.linkage",
     })
     
-    # Keep Ward + Euclidean on fastcluster for all dataset sizes.
-    if metric == "euclidean" and method.startswith("ward") and HAS_FASTCLUSTER:
-        cluster_data, n_components = _reduce_for_clustering(data)
-        Z = fastcluster.linkage_vector(cluster_data, method="ward", metric="euclidean")
-        _LAST_CLUSTER_INFO["engine"] = "fastcluster.linkage_vector"
+    if not reduce:
+        if metric == "euclidean" and method.startswith("ward") and HAS_FASTCLUSTER:
+            Z = fastcluster.linkage_vector(data, method="ward", metric="euclidean")
+            _LAST_CLUSTER_INFO["engine"] = "full_matrix+fastcluster.linkage_vector"
+        else:
+            dist = pdist(data, metric=metric)
+            if HAS_FASTCLUSTER:
+                Z = fastcluster.linkage(dist, method=method, preserve_input=True)
+                _LAST_CLUSTER_INFO["engine"] = "full_pdist+fastcluster.linkage"
+            else:
+                Z = linkage(dist, method=method)
+                _LAST_CLUSTER_INFO["engine"] = "full_pdist+scipy.linkage"
+        labels = fcluster(Z, t=n_clusters, criterion="maxclust")
+        return labels, Z
+
+    # Keep Ward + Euclidean on the vectorized full/PCA matrix path.
+    if metric == "euclidean" and method.startswith("ward"):
+        cluster_data, n_components = _reduce_for_clustering(data, max_components=pca_components)
+        if HAS_FASTCLUSTER:
+            Z = fastcluster.linkage_vector(cluster_data, method="ward", metric="euclidean")
+            _LAST_CLUSTER_INFO["engine"] = "fastcluster.linkage_vector"
+        else:
+            dist = pdist(cluster_data, metric="euclidean")
+            Z = linkage(dist, method=method)
+            _LAST_CLUSTER_INFO["engine"] = "scipy.linkage"
         if n_components is not None:
             _LAST_CLUSTER_INFO["approximate"] = True
-            _LAST_CLUSTER_INFO["engine"] = f"pca{n_components}+fastcluster.linkage_vector"
+            engine = "fastcluster.linkage_vector" if HAS_FASTCLUSTER else "scipy.linkage"
+            _LAST_CLUSTER_INFO["engine"] = f"pca{n_components}+{engine}"
         labels = fcluster(Z, t=n_clusters, criterion="maxclust")
         return labels, Z
 
@@ -196,8 +235,17 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
     
     # Hierarchical clustering
     data_t = norm_mat_smooth.T  # cells × genes
+    step4_reduce = n_cells > FULL_CLUSTER_MAX_CELLS
     km = 6
-    labels, Z = _hierarchical_cluster(data_t, km, method="ward", metric="euclidean", n_cores=n_cores)
+    labels, Z = _hierarchical_cluster(
+        data_t,
+        km,
+        method="ward",
+        metric="euclidean",
+        n_cores=n_cores,
+        reduce=step4_reduce,
+        pca_components=ADAPTIVE_PCA_COMPONENTS,
+    )
     
     # Reduce clusters until all have > min_cells
     while not np.all(_cluster_sizes(labels) > min_cells):
@@ -205,7 +253,15 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
         if Z is not None:
             labels = fcluster(Z, t=km, criterion="maxclust")
         else:
-            labels, Z = _hierarchical_cluster(data_t, km, method="ward", metric="euclidean", n_cores=n_cores)
+            labels, Z = _hierarchical_cluster(
+                data_t,
+                km,
+                method="ward",
+                metric="euclidean",
+                n_cores=n_cores,
+                reduce=step4_reduce,
+                pca_components=ADAPTIVE_PCA_COMPONENTS,
+            )
         if km == 2:
             break
     
@@ -234,7 +290,15 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
     if Z is not None:
         labels_2 = fcluster(Z, t=2, criterion="maxclust")
     else:
-        labels_2, _ = _hierarchical_cluster(data_t, 2, method="ward", metric="euclidean", n_cores=n_cores)
+        labels_2, _ = _hierarchical_cluster(
+            data_t,
+            2,
+            method="ward",
+            metric="euclidean",
+            n_cores=n_cores,
+            reduce=step4_reduce,
+            pca_components=ADAPTIVE_PCA_COMPONENTS,
+        )
     
     # Compute silhouette on a stratified subsample for medium/large datasets.
     # Stratify by labels_2 so each cluster (diploid/aneuploid) is proportionally
@@ -345,8 +409,17 @@ def baseline_gmm(CNA_mat, cell_names, max_normal=5, mu_cut=0.05, Nfraq_cut=0.99,
     
     # Hierarchical clustering for the full dataset
     data_t = CNA_mat.T
+    step4_reduce = n_cells > FULL_CLUSTER_MAX_CELLS
     km = 6
-    labels, Z = _hierarchical_cluster(data_t, km, method="ward", metric="euclidean", n_cores=n_cores)
+    labels, Z = _hierarchical_cluster(
+        data_t,
+        km,
+        method="ward",
+        metric="euclidean",
+        n_cores=n_cores,
+        reduce=step4_reduce,
+        pca_components=ADAPTIVE_PCA_COMPONENTS,
+    )
     
     if len(N_normal) > 2:
         WNS = ""

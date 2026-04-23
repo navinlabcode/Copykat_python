@@ -33,6 +33,8 @@ except ImportError:
 from copykat_py.annotation import annotate_genes
 from copykat_py.smoothing import dlm_smooth, get_last_dlm_smooth_info
 from copykat_py.baseline import (
+    ADAPTIVE_PCA_COMPONENTS,
+    FULL_CLUSTER_MAX_CELLS,
     baseline_norm_cl,
     baseline_gmm,
     baseline_synthetic,
@@ -433,15 +435,32 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         
         # Cluster all cells
         data_t = norm_mat_smooth.T
+        step4_reduce = data_t.shape[0] > FULL_CLUSTER_MAX_CELLS
         km = 6
-        CL, Z = _hierarchical_cluster(data_t, km, method="ward", metric="euclidean", n_cores=n_cores)
+        CL, Z = _hierarchical_cluster(
+            data_t,
+            km,
+            method="ward",
+            metric="euclidean",
+            n_cores=n_cores,
+            reduce=step4_reduce,
+            pca_components=ADAPTIVE_PCA_COMPONENTS,
+        )
         
         while not all(np.bincount(CL)[np.bincount(CL) > 0] > 5):
             km -= 1
             if Z is not None:
                 CL = fcluster(Z, t=km, criterion="maxclust")
             else:
-                CL, Z = _hierarchical_cluster(data_t, km, method="ward", metric="euclidean", n_cores=n_cores)
+                CL, Z = _hierarchical_cluster(
+                    data_t,
+                    km,
+                    method="ward",
+                    metric="euclidean",
+                    n_cores=n_cores,
+                    reduce=step4_reduce,
+                    pca_components=ADAPTIVE_PCA_COMPONENTS,
+                )
             if km == 2:
                 break
         
@@ -513,8 +532,16 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
     if len(CL_filtered) != norm_mat_relat.shape[1]:
         # Recompute if shape mismatch
         data_t = norm_mat_relat.T
-        CL_filtered, _ = _hierarchical_cluster(data_t, min(6, norm_mat_relat.shape[1]),
-                                                method="ward", metric="euclidean", n_cores=n_cores)
+        step4_reduce = data_t.shape[0] > FULL_CLUSTER_MAX_CELLS
+        CL_filtered, _ = _hierarchical_cluster(
+            data_t,
+            min(6, norm_mat_relat.shape[1]),
+            method="ward",
+            metric="euclidean",
+            n_cores=n_cores,
+            reduce=step4_reduce,
+            pca_components=ADAPTIVE_PCA_COMPONENTS,
+        )
     
     # =========================================================================
     # Step 5: Segmentation
@@ -572,12 +599,21 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         
         print("step 7: adjust baseline ...")
         step_start = time.perf_counter()
+        step7_reduce = uber_mat_adj.shape[1] > FULL_CLUSTER_MAX_CELLS
         
         if cell_line == "yes":
             mat_adj = uber_mat_adj.copy()
         else:
             # First hierarchical clustering for initial prediction
-            labels, Z = _hierarchical_cluster(uber_mat_adj.T, 2, method="ward", metric="euclidean", n_cores=n_cores)
+            labels, Z = _hierarchical_cluster(
+                uber_mat_adj.T,
+                2,
+                method="ward",
+                metric="euclidean",
+                n_cores=n_cores,
+                reduce=step7_reduce,
+                pca_components=ADAPTIVE_PCA_COMPONENTS,
+            )
             hc_umap = labels
             
             # Determine which cluster is normal based on preN enrichment
@@ -625,8 +661,17 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         # =========================================================================
         print("step 8: final prediction ...")
         step_start = time.perf_counter()
+        step8_reduce = mat_adj.shape[1] > FULL_CLUSTER_MAX_CELLS
         if cell_line != "yes":
-            labels_final, Z_final = _hierarchical_cluster(mat_adj.T, 2, method="ward", metric="euclidean", n_cores=n_cores)
+            labels_final, Z_final = _hierarchical_cluster(
+                mat_adj.T,
+                2,
+                method="ward",
+                metric="euclidean",
+                n_cores=n_cores,
+                reduce=step8_reduce,
+                pca_components=ADAPTIVE_PCA_COMPONENTS,
+            )
             hc_final = labels_final
             
             if preN is not None and len(preN) > 0:
@@ -648,7 +693,15 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                 com_preN = np.where(com_preN == "diploid", "c1:diploid:low.conf", com_preN)
                 com_preN = np.where(com_preN == "aneuploid", "c2:aneuploid:low.conf", com_preN)
         else:
-            labels, Z = _hierarchical_cluster(mat_adj.T, 2, method="ward", metric="euclidean", n_cores=n_cores)
+            labels, Z = _hierarchical_cluster(
+                mat_adj.T,
+                2,
+                method="ward",
+                metric="euclidean",
+                n_cores=n_cores,
+                reduce=step8_reduce,
+                pca_components=ADAPTIVE_PCA_COMPONENTS,
+            )
             labels_final, Z_final = labels, Z
         cluster_info = get_last_cluster_info()
         elapsed = _record_step(runtime_info, "final_prediction", step_start, parallel_info=cluster_info, extra={"warning": WNS})
@@ -744,8 +797,17 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         
         print("step 7: adjust baseline ...")
         step_start = time.perf_counter()
+        step7_reduce = uber_mat_adj.shape[1] > FULL_CLUSTER_MAX_CELLS
         # Same prediction logic as hg20 (mirroring the R code mm10 section)
-        labels, Z = _hierarchical_cluster(uber_mat_adj.T, 2, method="ward", metric="euclidean", n_cores=n_cores)
+        labels, Z = _hierarchical_cluster(
+            uber_mat_adj.T,
+            2,
+            method="ward",
+            metric="euclidean",
+            n_cores=n_cores,
+            reduce=step7_reduce,
+            pca_components=ADAPTIVE_PCA_COMPONENTS,
+        )
         hc_umap = labels
         
         if preN is not None and len(preN) > 0:
@@ -791,7 +853,16 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         # Final prediction
         print("step 8: final prediction ...")
         step_start = time.perf_counter()
-        labels_final, Z_final = _hierarchical_cluster(mat_adj.T, 2, method="ward", metric="euclidean", n_cores=n_cores)
+        step8_reduce = mat_adj.shape[1] > FULL_CLUSTER_MAX_CELLS
+        labels_final, Z_final = _hierarchical_cluster(
+            mat_adj.T,
+            2,
+            method="ward",
+            metric="euclidean",
+            n_cores=n_cores,
+            reduce=step8_reduce,
+            pca_components=ADAPTIVE_PCA_COMPONENTS,
+        )
         hc_final = labels_final
         
         if preN is not None and len(preN) > 0:
