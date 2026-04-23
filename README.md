@@ -9,22 +9,9 @@ The original CopyKAT-R package is widely used for distinguishing aneuploid tumor
 Open GitHub issues in the original CopyKAT repository highlight several recurring needs:
 
 - Long runtime, including reports of >1 hour for ~8,000 cells.
-- Difficulty running very large datasets, including hundreds of thousands to millions of cells.
-
-CopyKAT-Python was developed to address these practical issues while preserving the main biological idea of CopyKAT: large-scale chromosomal expression patterns can be used to infer copy number profiles and separate malignant from non-malignant cells.
-
-## What Is Improved?
-
-Compared with CopyKAT-R, CopyKAT-Python focuses on:
-
-- Native Python workflow support.
-- Easier integration with `AnnData`, `Scanpy`, and Python pipelines.
-- Improved handling of large datasets.
-- More transparent intermediate outputs.
-- Clearer confidence reporting for uncertain cells.
-- More flexible downstream use of CNV matrices and cell-level annotations.
-- Better reproducibility through Python package management and scripted workflows.
-
+- Difficulty running very large datasets, including hundreds of thousands to millions of cells (majorly due to hcluster limits).
+- a signularity container were create to enhance the reproducibiltiy
+  
 CopyKAT-Python is not intended to be a line-by-line clone of CopyKAT-R. It is a Python reimplementation designed to reproduce the core CopyKAT strategy while improving scalability and usability.
 
 ## Confidence of Results
@@ -32,6 +19,61 @@ CopyKAT-Python is not intended to be a line-by-line clone of CopyKAT-R. It is a 
 CopyKAT-Python reports tumor/normal predictions together with confidence-related outputs. High-confidence results usually show clear chromosome-arm or whole-chromosome CNV patterns, consistent CNV profiles within clusters, and strong separation between inferred diploid and aneuploid cells.
 
 Lower-confidence results may occur in samples with weak CNV signal, low sequencing depth, few normal reference cells, strong batch effects, or tumors with near-diploid genomes.
+
+### Batch Testing
+Both copykat-R and copykat-PY were tested on the raw dateset (without any QC fitler), and with number of core set to 24.
+
+#### 8 human and 8 mouse 10X datasets from different tissue and different platform were used for validation.
+
+| sample | species | tissue | assay | reported_cells |
+| :--- | :--- | :--- | :--- | ---: |
+| [human_pbmc_10k_3pv3](https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_10k_v3/pbmc_10k_v3_web_summary.html) | human | PBMC healthy control | Universal 3' v3 | 11769 |
+| [human_nsclc_5pv1](https://www.10xgenomics.com/datasets/nsclc-tumor-5-gene-expression-1-standard-2-2-0) | human | NSCLC tumor | Universal 5' v1 | 7802 |
+| [human_ovarian_flex](https://www.10xgenomics.com/datasets/17k-human-ovarian-cancer-scFFPE) | human | Ovarian cancer FFPE | Flex | 17553 |
+| [human_kidney_gemx_flex](https://www.10xgenomics.com/datasets/Human_Kidney_4k_GEM-X_Flex) | human | Kidney nuclei control | GEM-X Flex | 4633 |
+| [human_hodgkins_3pv31](https://www.10xgenomics.com/datasets/hodgkins-lymphoma-dissociated-tumor-whole-transcriptome-analysis-3-1-standard-4-0-0) | human | Hodgkin's lymphoma | Universal 3' v3.1 | 3394 |
+| [human_glioblastoma_3pv3](https://www.10xgenomics.com/datasets/human-glioblastoma-multiforme-3-v-3-whole-transcriptome-analysis-3-standard-4-0-0) | human | Glioblastoma multiforme | Universal 3' v3 | 5604 |
+| [human_breast_idc_7p5k_3pv31](https://www.10xgenomics.com/jp/datasets/7-5-k-sorted-cells-from-human-invasive-ductal-carcinoma-3-v-3-1-3-1-standard-6-0-0) | human | Invasive ductal carcinoma | Universal 3' v3.1 | 5680 |
+| [human_breast_idc_750_lt_3pv31](https://www.10xgenomics.com/datasets/750-sorted-cells-from-human-invasive-ductal-carcinoma-3-lt-v-3-1-3-1-low-6-0-0) | human | Invasive ductal carcinoma | Universal 3' LT v3.1 | 687 |
+| [human_melanoma_3p_gemx](https://www.10xgenomics.com/datasets/10k-human-dtc-melanoma-GEM-X) | human | Melanoma dissociated tumor cells | Universal 3' GEM-X | 10645 |
+| [human_melanoma_5p_nextgem](https://www.10xgenomics.com/datasets/10k-human-dtc-melanoma-NextGEM-5p) | human | Melanoma dissociated tumor cells | Universal 5' NextGEM | 6704 |
+| [mouse_brain_neurons_2k_v21](https://cf.10xgenomics.com/samples/cell-exp/2.1.0/neurons_2000/neurons_2000_web_summary.html) | mouse | E18 brain neurons | Universal 3' v2.1 | 2022 |
+| [mouse_brain_neurons_10k_v3](https://cf.10xgenomics.com/samples/cell-exp/3.0.0/neuron_10k_v3/neuron_10k_v3_web_summary.html) | mouse | Brain neurons | Universal 3' v3 | 11843 |
+| [mouse_heart_1k_v3](https://cf.10xgenomics.com/samples/cell-exp/3.0.0/heart_1k_v3/heart_1k_v3_web_summary.html) | mouse | Heart E18 | Universal 3' v3 | 1011 |
+| [mouse_heart_10k_v3](https://cf.10xgenomics.com/samples/cell-exp/3.0.0/heart_10k_v3/heart_10k_v3_web_summary.html) | mouse | Heart E18 | Universal 3' v3 | 7713 |
+| [mouse_heart_1k_v2](https://cf.10xgenomics.com/samples/cell-exp/3.0.0/heart_1k_v2/heart_1k_v2_web_summary.html) | mouse | Heart E18 | Universal 3' v2 | 712 |
+| [mouse_brain_e18_10k_si_3pv31](https://www.10xgenomics.com/datasets/10-k-mouse-e-18-combined-cortex-hippocampus-and-subventricular-zone-cells-single-indexed-3-1-standard-4-0-0) | mouse | E18 cortex hippocampus SVZ | Universal 3' v3.1 SI | 11316 |
+| [mouse_kidney_nuclei_1k_3pv31](https://www.10xgenomics.com/cn/datasets/1k-mouse-kidney-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard) | mouse | Adult kidney nuclei | Universal 3' v3.1 | 1385 |
+| [mouse_liver_nuclei_5k_3pv31](https://www.10xgenomics.com/datasets/5k-adult-mouse-liver-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard) | mouse | Adult liver nuclei | Universal 3' v3.1 | 6311 |
+| [mouse_lung_nuclei_5k_3pv31](https://www.10xgenomics.com/datasets/5k-adult-mouse-lung-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard) | mouse | Adult lung nuclei | Universal 3' v3.1 | 7788 |
+| [mouse_brain_gemx](https://www.10xgenomics.com/datasets/10k-Mouse-Neurons-3p-gemx) | mouse | E18 brain neurons | Universal 3' GEM-X | 12441 |
+
+
+##### Side-by-Side Comparison of Copykat-R and Copykat-Py
+
+**human_pbmc_10k_3pv3**
+<img width="1209" height="559" alt="image" src="https://github.com/user-attachments/assets/9a7f6b5f-884d-41d6-805b-59933e8daf1b" />
+
+**human_breast_idc_7p5k_3pv31**
+<img width="1216" height="587" alt="image" src="https://github.com/user-attachments/assets/22b0ffd1-075e-495e-856a-3a1c80a9b510" />
+
+**mouse_brain_e18_10k_si_3pv31**
+<img width="1207" height="568" alt="image" src="https://github.com/user-attachments/assets/aef52f54-aa80-430a-b719-7781fa91b792" />
+
+**Key metrics Comparison**
+
+<img width="2700" height="1650" alt="image" src="https://github.com/user-attachments/assets/a4cd6b97-e448-419b-b28b-3293bc9501fa" />
+
+
+### Maximum Testing with full Atera In Situ Gene Expression, [FFPE Human Breast Cancer](https://www.10xgenomics.com/datasets/atera-wta-ffpe-human-breast-cancer)
+The full new Xenium (Atera) dataset were subset to 50k, 100k and full(170k) for testing purpose
+
+**Running Time**
+<img width="1014" height="677" alt="image" src="https://github.com/user-attachments/assets/f534aca8-2d7b-40c6-acb1-dafb1775e224" />
+
+**CNV heatmap for Full dataset**
+<img width="2601" height="1825" alt="xenium_all_cells_copykat_heatmap" src="https://github.com/user-attachments/assets/2d604c37-2959-4bfb-be0e-38f3999b14d4" />
+
 
 ## Why Results May Differ from CopyKAT-R
 
@@ -46,35 +88,26 @@ CopyKAT-Python results may not be identical to CopyKAT-R because of differences 
 
 These differences are expected for an independent Python implementation.
 
-## Figures and Tables to Add
+## How to run
+copykat-py share idential parameters with copykat-R, with few convinent improvements.
 
-### Figure 1. Workflow overview
+<img width="956" height="508" alt="image" src="https://github.com/user-attachments/assets/144da3e7-d856-4f75-91fa-e89883e98213" />
 
-Input expression matrix → gene genomic ordering → smoothing → CNV inference → clustering → tumor/normal prediction.
-
-### Figure 2. Example CNV heatmap
-
-Show inferred CNV profiles across chromosomes with cells grouped by predicted tumor/normal status.
-
-### Figure 3. CopyKAT-R vs CopyKAT-Python comparison
-
-Show side-by-side CNV heatmaps or classification agreement on the same dataset.
-
-### Table 1. Runtime and scalability benchmark
-
-| Dataset | Cells | Genes | CopyKAT-R runtime | CopyKAT-Python runtime | Notes |
-|---|---:|---:|---:|---:|---|
-| TODO | TODO | TODO | TODO | TODO | TODO |
-
-### Table 2. Classification concordance
-
-| Dataset | Tumor/normal agreement | Aneuploid agreement | Diploid agreement | Uncertain cells | Notes |
-|---|---:|---:|---:|---:|---|
-| TODO | TODO | TODO | TODO | TODO | TODO |
-
-## Installation
+### Installation
 
 ```bash
 git clone https://github.com/NavinLab/copykat-python.git
 cd copykat-python
 pip install -e .
+```
+
+### Singularity Container
+
+A pre-built Singularity container is available for [download](https://github.com/navinlabcode/Copykat_python/releases/download/sif/copykat_py.sif):
+
+```bash
+wget https://github.com/navinlabcode/Copykat_python/releases/download/v1.0.0/copykat_py.sif
+
+singularity exec copykat_py.sif copykat-py --help
+```
+
