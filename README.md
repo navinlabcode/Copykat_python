@@ -138,5 +138,4 @@ CopyKAT-Python results may not be identical to CopyKAT-R due to differences in:
 - Filtering and preprocessing steps
 - Numerical implementation details
 - Smoothing and segmentation algorithms
-- Clustering behavior and random seed handling
-- Treatment of uncertain (`not.defined`) cells
+- Clustering behavior (parDist + hcluster vs. PCA + fastcluster)
