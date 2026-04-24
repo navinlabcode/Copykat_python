@@ -52,6 +52,11 @@ CopyKAT-Python shares identical parameters with CopyKAT-R, with a few convenient
 
 Both CopyKAT-R and CopyKAT-Python were tested on raw datasets (no QC filtering) using 24 cores. A total of 20 datasets spanning human and mouse tissues across multiple 10X platforms were used for validation.
 
+<details>
+<summary><b>10x Genomics Benchmark Datasets</b></summary>
+
+<br>
+
 | Sample | Species | Tissue | Assay | Reported Cells |
 | :--- | :--- | :--- | :--- | ---: |
 | [human_pbmc_10k_3pv3](https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_10k_v3/pbmc_10k_v3_web_summary.html) | human | PBMC healthy control | Universal 3' v3 | 11,769 |
@@ -74,6 +79,10 @@ Both CopyKAT-R and CopyKAT-Python were tested on raw datasets (no QC filtering) 
 | [mouse_liver_nuclei_5k_3pv31](https://www.10xgenomics.com/datasets/5k-adult-mouse-liver-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard) | mouse | Adult liver nuclei | Universal 3' v3.1 | 6,311 |
 | [mouse_lung_nuclei_5k_3pv31](https://www.10xgenomics.com/datasets/5k-adult-mouse-lung-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard) | mouse | Adult lung nuclei | Universal 3' v3.1 | 7,788 |
 | [mouse_brain_gemx](https://www.10xgenomics.com/datasets/10k-Mouse-Neurons-3p-gemx) | mouse | E18 brain neurons | Universal 3' GEM-X | 12,441 |
+
+
+</details>
+
 
 #### Side-by-Side Comparison: CopyKAT-R vs CopyKAT-Python
 
