@@ -67,6 +67,25 @@ def _write_cna_csv(df, path, float_fmt="%.6f"):
         df.to_csv(path, sep="\t", index=False, float_format=float_fmt)
 
 
+def _meta_with_pred(meta_csv, pred_dict, sample_name):
+    """Read *meta_csv*, append copykat-py predictions as the last column.
+
+    Returns the path to a new CSV written alongside the original outputs.
+    Cells absent from *pred_dict* receive ``"not.defined"``.
+    """
+    import pandas as pd
+    meta = pd.read_csv(meta_csv)
+    cell_col = meta.columns[0]
+    meta = meta.set_index(cell_col)
+    if pred_dict is not None:
+        meta["copykat_pred_py"] = meta.index.map(pred_dict).fillna("not.defined")
+    else:
+        meta["copykat_pred_py"] = "not.defined"
+    out_path = f"{sample_name}meta_with_pred.csv"
+    meta.reset_index().to_csv(out_path, index=False)
+    return out_path
+
+
 def _run_plot_heatmap(mat_adj, chrom_info, predictions, sample_name, distance, n_cores, WNS1, WNS, output_path):
     from copykat_py.plotting import plot_heatmap
 
@@ -274,7 +293,8 @@ def _keep_cells_by_chr_coverage(values, chroms, ngene_chr):
 def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=200,
             LOW_DR=0.05, UP_DR=0.1, win_size=25, norm_cell_names="",
             KS_cut=0.1, sam_name="", distance="euclidean", output_seg=False,
-            plot_genes=True, genome="hg20", n_cores=1, pca_components=None):
+            plot_genes=True, genome="hg20", n_cores=1, pca_components=None,
+            meta_csv=None, row_split_col=None):
     """Run CopyKAT analysis: infer copy number profiles from scRNA-seq data.
     
     Parameters
@@ -316,7 +336,16 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         Adaptive PCA component cap for large clustering steps. When omitted,
         CopyKAT-Py uses the built-in rule: 256 PCs for fewer than 50,000
         input cells, otherwise 128 PCs.
-    
+    meta_csv : str or None
+        Path to a per-cell annotation CSV for the annotated heatmap.
+        First column = cell name; remaining columns become coloured annotation
+        sidebars.  When provided (and ``plot_genes=True``), an annotated
+        heatmap is saved as ``{sam_name}annotated_heatmap.png`` in addition to
+        the standard heatmap.  Header row is auto-detected.
+    row_split_col : str or None
+        Column in ``meta_csv`` used to split and label heatmap rows.
+        Defaults to the second column when ``None``.
+
     Returns
     -------
     dict with keys:
@@ -794,7 +823,26 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             )
             elapsed = _record_step(runtime_info, "plot_heatmap", plot_step_start)
             print(f"  step 10 runtime: {_format_seconds(elapsed)}")
-        
+
+        if plot_genes and meta_csv is not None:
+            print("step 10b: plotting annotated heatmap ...")
+            step_ann = time.perf_counter()
+            from copykat_py.plotting import plot_heatmap_annotated
+            meta_pred_path = _meta_with_pred(meta_csv, pred_dict, sample_name)
+            plot_heatmap_annotated(
+                mat=mat_adj,
+                cell_names=cna_out.columns[3:].tolist(),
+                chrom_info=chrom_info,
+                meta_csv=meta_pred_path,
+                row_split_col=row_split_col,
+                sample_name=sample_name,
+                distance=distance,
+                n_cores=n_cores,
+                output_path=f"{sample_name}annotated_heatmap.png",
+            )
+            elapsed = _record_step(runtime_info, "plot_annotated_heatmap", step_ann)
+            print(f"  step 10b runtime: {_format_seconds(elapsed)}")
+
         # =========================================================================
         # Output SEG file
         # =========================================================================
@@ -945,11 +993,11 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         elapsed = _record_step(runtime_info, "write_final_outputs", step_start, extra={"bins": int(cna_out.shape[0]), "cells": int(len(cell_cols_seg))})
         print(f"  step 9 runtime: {_format_seconds(elapsed)}")
         
+        chrom_numeric = pd.to_numeric(anno_mat2["chromosome_name"], errors="coerce").fillna(0).values
         if plot_genes:
             print("step 10: plotting heatmap ...")
             step_start = time.perf_counter()
             from copykat_py.plotting import plot_heatmap
-            chrom_numeric = pd.to_numeric(anno_mat2["chromosome_name"], errors="coerce").fillna(0).values
             plot_heatmap(
                 mat_adj, chrom_numeric,
                 predictions=pred_dict,
@@ -961,6 +1009,25 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             )
             elapsed = _record_step(runtime_info, "plot_heatmap", step_start)
             print(f"  step 10 runtime: {_format_seconds(elapsed)}")
+
+        if plot_genes and meta_csv is not None:
+            print("step 10b: plotting annotated heatmap ...")
+            step_ann = time.perf_counter()
+            from copykat_py.plotting import plot_heatmap_annotated
+            meta_pred_path = _meta_with_pred(meta_csv, pred_dict, sample_name)
+            plot_heatmap_annotated(
+                mat=mat_adj,
+                cell_names=cna_out.columns[3:].tolist(),
+                chrom_info=chrom_numeric,
+                meta_csv=meta_pred_path,
+                row_split_col=row_split_col,
+                sample_name=sample_name,
+                distance=distance,
+                n_cores=n_cores,
+                output_path=f"{sample_name}annotated_heatmap.png",
+            )
+            elapsed = _record_step(runtime_info, "plot_annotated_heatmap", step_ann)
+            print(f"  step 10b runtime: {_format_seconds(elapsed)}")
         runtime_info["total_seconds"] = round(time.perf_counter() - start_time, 4)
         with open(f"{sample_name}runtime.json", "w", encoding="utf-8") as f:
             json.dump(runtime_info, f, indent=2)

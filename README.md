@@ -130,6 +130,106 @@ CopyKAT-Python reports tumor/normal predictions alongside confidence-related out
 
 ---
 
+## Annotated Heatmap with Metadata
+
+After a CopyKAT-Py run you can re-plot the CNA heatmap with per-cell metadata
+annotations (cell type, cluster labels, etc.) using either the CLI or the
+Python API.  Rows are split into labelled groups by a chosen metadata column,
+and cells within each group are ordered by hierarchical or K-means clustering
+so intra-group CNA structure is preserved.
+
+### CLI — main `copykat-py` run
+
+Pass `--meta` (and optionally `--row-split`) to the standard `copykat-py`
+command.  The annotated heatmap is produced automatically after the main run,
+alongside the standard heatmap.
+
+```bash
+copykat-py \
+    --input  sample.csv \
+    --sample-name xenium_all_cells \
+    --n-cores 40 \
+    --meta xenium_ft_full_meta_celltype_leiden.csv \
+    --row-split inferred_CellType
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--meta` | *(optional)* | Annotation CSV — first column = cell name, rest = metadata |
+| `--row-split` | second column | Column used to split and label row groups |
+
+### CLI — standalone `copykat-py-plot`
+
+For re-plotting from an existing CNA results file without re-running the
+full analysis:
+
+```bash
+copykat-py-plot \
+    --cna  sample_copykat_CNA_results.txt \
+    --meta xenium_ft_full_meta_celltype_leiden.csv \
+    --row-split inferred_CellType \
+    --sample-name xenium_all_cells \
+    --n-cores 40 \
+    --output xenium_annotated_heatmap.png
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--cna` / `-c` | *(required)* | `*_copykat_CNA_results.txt` from a copykat-py run |
+| `--meta` / `-m` | *(required)* | Annotation CSV — first column = cell name, rest = metadata |
+| `--row-split` | second column | Column used to split and label row groups |
+| `--sample-name` | `""` | Figure title prefix and default filename stem |
+| `--distance` | `euclidean` | Distance metric: `euclidean`, `pearson`, or `spearman` |
+| `--n-cores` | `1` | Parallel threads for clustering |
+| `--output` / `-o` | auto | PNG output path |
+
+**Meta CSV format** — header row is auto-detected:
+
+```csv
+cell_name,leiden_cluster,inferred_CellType
+aaaajgij-1,5,lumhr
+aaaandia-1,5,lumhr
+...
+```
+
+Cells present in the CNA results but absent from the CSV are labelled
+`"unknown"` and shown in grey.  All remaining metadata columns are drawn as
+coloured annotation sidebars.
+
+### Python API — `plot_heatmap_annotated`
+
+```python
+import pandas as pd
+import numpy as np
+from copykat_py.plotting import plot_heatmap_annotated
+
+cna = pd.read_csv("sample_copykat_CNA_results.txt", sep="\t")
+plot_heatmap_annotated(
+    mat        = cna.iloc[:, 3:].values.astype("float32"),  # bins × cells
+    cell_names = cna.columns[3:].tolist(),
+    chrom_info = cna.iloc[:, 0].values,
+    meta_csv   = "xenium_ft_full_meta_celltype_leiden.csv",
+    row_split_col = "inferred_CellType",   # None → auto-picks second column
+    sample_name   = "xenium_all_cells",
+    n_cores       = 40,
+    output_path   = "xenium_annotated_heatmap.png",
+)
+```
+
+**Layout produced:**
+
+```text
+[cell-type labels] | [sidebar col 1] | [sidebar col 2] | [heatmap] | [colorbar] | [legend]
+```
+
+- Each metadata column gets a narrow coloured sidebar (tab10/tab20 palette,
+  auto-assigned)
+- White horizontal lines separate row groups
+- Within-group ordering: Ward linkage for ≤ 3 000 cells, K-means block
+  ordering for larger groups
+
+---
+
 ## Why Results May Differ from CopyKAT-R
 
 CopyKAT-Python results may not be identical to CopyKAT-R due to differences in:

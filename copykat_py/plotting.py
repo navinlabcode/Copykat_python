@@ -297,6 +297,44 @@ def _safe_dendrogram_with_recursion_management(Z, ax, n_cells):
         sys.setrecursionlimit(old_limit)
 
 
+def _add_chr_labels(ax, chrom_info):
+    """Overlay chromosome name labels on a chromosome-bar axes.
+
+    Labels are centred in each chromosome band and coloured for contrast
+    (white on the black/odd bands, black on the white/even bands).
+    Chromosomes 23 and 24 are labelled "X" and "Y" respectively.
+    """
+    chrom_arr = np.asarray(chrom_info)
+    n_bins = len(chrom_arr)
+
+    # Chromosome boundaries via value-change detection (works for int or str)
+    chrom_s = np.array([str(c) for c in chrom_arr])
+    boundary_mask = np.concatenate([[True], chrom_s[1:] != chrom_s[:-1]])
+    starts = np.where(boundary_mask)[0]
+    ends   = np.concatenate([starts[1:], [n_bins]])
+    chr_ids = chrom_arr[starts]
+
+    def _chr_label(c):
+        try:
+            v = int(float(str(c)))
+            return {23: "X", 24: "Y"}.get(v, str(v))
+        except (ValueError, TypeError):
+            return str(c)
+
+    ax.set_xlim(-0.5, n_bins - 0.5)
+    ax.set_ylim(0, 1)
+    for cid, s, e in zip(chr_ids, starts, ends):
+        mid = (s + e - 1) / 2.0
+        try:
+            is_odd = int(float(str(cid))) % 2 == 1
+        except (ValueError, TypeError):
+            is_odd = True
+        ax.text(mid, 0.5, _chr_label(cid),
+                ha="center", va="center", fontsize=5.5,
+                color="white" if is_odd else "black",
+                clip_on=True)
+
+
 def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
                  distance="euclidean", n_cores=1, WNS1="", WNS="",
                  output_path=None):
@@ -427,6 +465,7 @@ def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
     ax_chr.set_xticks([])
     ax_chr.set_yticks([])
     ax_chr.set_ylabel("Chr", fontsize=8)
+    _add_chr_labels(ax_chr, chrom_info)
 
     # --- Main heatmap -----------------------------------------------------
     ax_heat = fig.add_subplot(gs[1, col_heat])
@@ -533,3 +572,301 @@ def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Heatmap saved to {output_path} in {time.perf_counter() - plot_start:.2f}s")
+
+
+# ---------------------------------------------------------------------------
+# Annotated heatmap with metadata sidebars and row splitting
+# ---------------------------------------------------------------------------
+
+def _natural_sort_key(s):
+    """Sort key that orders numeric substrings numerically (e.g. "10" after "9")."""
+    import re
+    return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", str(s))]
+
+
+def _assign_cat_colors(values):
+    """Return {category: hex_color} for every unique value in *values*.
+
+    Uses tab10 (≤10), tab20 (≤20), or HSV-spaced colors for larger sets.
+    The "unknown" category (cells missing from the meta CSV) is always grey.
+    """
+    cats = sorted({str(v) for v in values}, key=_natural_sort_key)
+    n = len(cats)
+    if n <= 10:
+        palette = [mcolors.to_hex(c) for c in plt.cm.tab10.colors]
+    elif n <= 20:
+        palette = [mcolors.to_hex(c) for c in plt.cm.tab20.colors]
+    else:
+        palette = [mcolors.to_hex(plt.cm.hsv(i / n)) for i in range(n)]
+    cmap = {cat: palette[i % len(palette)] for i, cat in enumerate(cats)}
+    if "unknown" in cmap:
+        cmap["unknown"] = "#cccccc"
+    return cmap
+
+
+def _detect_csv_header(path):
+    """Return True if the CSV first row looks like column names.
+
+    Heuristic: if the second field of row 0 can be parsed as a float it is
+    data (no header); otherwise the row is a header.
+    """
+    import pandas as pd
+    row0 = pd.read_csv(path, header=None, nrows=1).iloc[0]
+    if len(row0) > 1:
+        try:
+            float(str(row0.iloc[1]))
+            return False
+        except (ValueError, TypeError):
+            return True
+    return True
+
+
+def _read_meta_csv(path):
+    """Read annotation CSV; first column is used as the cell-name index.
+
+    Auto-detects whether the file has a header row.  All column names are
+    cast to strings so they are safe for dict keys and plot labels.
+    """
+    import pandas as pd
+    header = 0 if _detect_csv_header(path) else None
+    df = pd.read_csv(path, header=header)
+    df = df.set_index(df.columns[0])
+    df.index = df.index.astype(str)
+    df.columns = df.columns.astype(str)
+    return df
+
+
+def _order_group(mat_grp, distance="euclidean", n_cores=1):
+    """Return a cell-ordering index array for one CNA sub-matrix.
+
+    Uses full Ward linkage for groups ≤ 3 000 cells; K-means block ordering
+    (same strategy as the main ``plot_heatmap``) for larger groups.
+    """
+    n = mat_grp.shape[1]
+    if n <= 1:
+        return np.arange(n, dtype=int)
+
+    if n <= 3000:
+        old_lim = sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(max(10000, n * 10))
+            Z = _safe_linkage(mat_grp, distance, "ward", n_cores)
+            dn = dendrogram(Z, no_plot=True)
+            return np.array(dn["leaves"], dtype=int)
+        except Exception:
+            pass
+        finally:
+            sys.setrecursionlimit(old_lim)
+
+    n_clust = min(128, max(32, n // 160))
+    try:
+        return _clustered_block_layout(mat_grp, n_clusters=n_clust)["cell_order"]
+    except Exception:
+        return np.arange(n, dtype=int)
+
+
+def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
+                           row_split_col=None, sample_name="",
+                           distance="euclidean", n_cores=1,
+                           output_path=None):
+    """Plot CNA heatmap with per-cell metadata annotation bars and row splitting.
+
+    Reads a CSV where the first column is the cell name and every remaining
+    column is drawn as a narrow coloured sidebar on the left of the heatmap.
+    Rows are split into labelled groups according to *row_split_col*; within
+    each group cells are ordered by hierarchical or K-means clustering so the
+    intra-group CNA structure is preserved.
+
+    Parameters
+    ----------
+    mat : np.ndarray, shape (n_bins, n_cells)
+        CNA log-ratio values (bins × cells).
+    cell_names : list of str
+        Cell names in the same column order as *mat*.
+    chrom_info : np.ndarray
+        Integer chromosome ID per bin.
+    meta_csv : str
+        Annotation CSV path.  First column = cell name; remaining columns
+        become annotation sidebars.  Header row is auto-detected.
+        Cells present in *mat* but absent from the CSV are labelled "unknown".
+    row_split_col : str or None
+        Column name used to split rows into labelled groups.  When *None* the
+        second column of the CSV is used.
+    sample_name : str
+        Label shown in the figure title and used for the default filename.
+    distance : str
+        Distance metric for within-group clustering
+        (``"euclidean"``, ``"pearson"``, or ``"spearman"``).
+    n_cores : int
+        Parallel threads passed to the clustering backend.
+    output_path : str or None
+        PNG save path.  Defaults to
+        ``"{sample_name}_copykat_annotated_heatmap.png"``.
+    """
+    if output_path is None:
+        output_path = f"{sample_name}_copykat_annotated_heatmap.png"
+
+    t0 = time.perf_counter()
+    n_bins, n_cells = mat.shape
+    print(f"  plot_heatmap_annotated: {n_cells} cells × {n_bins} bins")
+
+    # ── 1. Load and align metadata ────────────────────────────────────────
+    meta_df = _read_meta_csv(meta_csv)
+    ann_cols = meta_df.columns.tolist()
+
+    if row_split_col is None:
+        row_split_col = ann_cols[0]
+    if row_split_col not in ann_cols:
+        raise ValueError(
+            f"row_split_col '{row_split_col}' not found; available: {ann_cols}"
+        )
+
+    # Ensure row_split_col is always the leftmost annotation sidebar
+    ann_cols = [row_split_col] + [c for c in ann_cols if c != row_split_col]
+
+    cell_names_str = [str(c) for c in cell_names]
+    meta_aligned = meta_df.reindex(cell_names_str).fillna("unknown")
+
+    # ── 2. Per-group ordering: sort groups, then cluster cells within ─────
+    split_vals = meta_aligned[row_split_col].astype(str).values
+    group_names = sorted(np.unique(split_vals), key=_natural_sort_key)
+
+    ordered_indices = []
+    group_boundaries = [0]
+
+    for grp in group_names:
+        grp_idx = np.where(split_vals == grp)[0]
+        local_order = _order_group(mat[:, grp_idx], distance, n_cores)
+        ordered_indices.extend(grp_idx[local_order].tolist())
+        group_boundaries.append(len(ordered_indices))
+        print(f"    '{grp}': {len(grp_idx)} cells ordered")
+
+    ordered_indices = np.array(ordered_indices, dtype=int)
+    mat_ordered = mat[:, ordered_indices]
+    meta_ordered = meta_aligned.iloc[ordered_indices].reset_index(drop=True)
+
+    # ── 3. Build per-column categorical RGB image arrays ──────────────────
+    ann_cmaps = {}  # col → {category: hex}
+    ann_imgs = {}   # col → float32 array (n_cells, 1, 3)
+
+    for col in ann_cols:
+        vals = meta_ordered[col].astype(str)
+        cmap_dict = _assign_cat_colors(vals)
+        ann_cmaps[col] = cmap_dict
+        ann_imgs[col] = np.array(
+            [mcolors.to_rgb(cmap_dict[v]) for v in vals], dtype=np.float32
+        ).reshape(n_cells, 1, 3)
+
+    # ── 4. Figure layout ──────────────────────────────────────────────────
+    k = len(ann_cols)
+    col_grp = 0          # group-name labels
+    col_ann0 = 1         # first annotation sidebar
+    col_heat = 1 + k     # main heatmap
+    col_cbar = 2 + k     # colour bar
+    col_leg = 3 + k      # categorical legend
+    n_cols_total = 4 + k
+
+    width_ratios = [1.5] + [1.0] * k + [35.0, 0.8, 5.5]
+    gs = GridSpec(
+        2, n_cols_total,
+        height_ratios=[1, 50],
+        width_ratios=width_ratios,
+        hspace=0.02, wspace=0.02,
+    )
+    fig_h = max(15.0, min(28.0, 10.0 + n_cells / 20000.0))
+    fig = plt.figure(figsize=(22, fig_h))
+
+    # ── 5. Main heatmap ───────────────────────────────────────────────────
+    ax_heat = fig.add_subplot(gs[1, col_heat])
+    norm = mcolors.TwoSlopeNorm(vmin=-0.5, vcenter=0, vmax=0.5)
+    im = ax_heat.imshow(
+        mat_ordered.T, aspect="auto",
+        cmap=plt.cm.RdBu_r, norm=norm,
+        interpolation="nearest",
+    )
+    ax_heat.set_xticks([])
+    ax_heat.set_yticks([])
+    ax_heat.set_xlabel("Genomic position", fontsize=9)
+
+    for pos in np.where(np.diff(chrom_info.astype(int)))[0]:
+        ax_heat.axvline(x=pos, color="gray", linewidth=0.3, alpha=0.5)
+    for bd in group_boundaries[1:-1]:
+        ax_heat.axhline(y=bd - 0.5, color="white", linewidth=1.5)
+
+    # ── 6. Chromosome bar (top row) ───────────────────────────────────────
+    ax_chr = fig.add_subplot(gs[0, col_heat])
+    ax_chr.imshow(
+        (chrom_info.astype(int) % 2).reshape(1, -1).astype(float),
+        aspect="auto", cmap="binary", interpolation="nearest",
+    )
+    ax_chr.set_xticks([])
+    ax_chr.set_yticks([])
+    ax_chr.set_ylabel("Chr", fontsize=7)
+    _add_chr_labels(ax_chr, chrom_info)
+
+    # ── 7. Annotation sidebars ────────────────────────────────────────────
+    for i, col in enumerate(ann_cols):
+        ax_a = fig.add_subplot(gs[1, col_ann0 + i], sharey=ax_heat)
+        ax_a.imshow(ann_imgs[col], aspect="auto", interpolation="nearest")
+        ax_a.set_xticks([])
+        ax_a.set_yticks([])
+        for bd in group_boundaries[1:-1]:
+            ax_a.axhline(y=bd - 0.5, color="white", linewidth=1.5)
+
+        # column name in the top-row cell above each sidebar
+        ax_top = fig.add_subplot(gs[0, col_ann0 + i])
+        ax_top.axis("off")
+        ax_top.text(
+            0.5, 0.02, col,
+            ha="center", va="bottom", fontsize=6.5, rotation=90,
+            transform=ax_top.transAxes,
+        )
+
+    # ── 8. Group-name labels (leftmost column) ────────────────────────────
+    ax_grp = fig.add_subplot(gs[1, col_grp], sharey=ax_heat)
+    ax_grp.set_xlim(0, 1)
+    ax_grp.axis("off")
+    for i, grp in enumerate(group_names):
+        y_mid = (group_boundaries[i] + group_boundaries[i + 1]) / 2.0
+        ax_grp.text(
+            0.98, y_mid, str(grp),
+            ha="right", va="center", fontsize=6.5,
+        )
+
+    # ── 9. Colour bar ─────────────────────────────────────────────────────
+    ax_cbar = fig.add_subplot(gs[1, col_cbar])
+    cbar = fig.colorbar(im, cax=ax_cbar, orientation="vertical")
+    cbar.set_label("Relative CNA", fontsize=7)
+    cbar.ax.tick_params(labelsize=6)
+
+    # ── 10. Categorical legend ────────────────────────────────────────────
+    from matplotlib.patches import Patch
+    ax_leg = fig.add_subplot(gs[1, col_leg])
+    ax_leg.axis("off")
+    patches = []
+    for col in ann_cols:
+        patches.append(Patch(facecolor="none", edgecolor="none",
+                             label=f"── {col} ──"))
+        for cat in sorted(ann_cmaps[col], key=_natural_sort_key):
+            patches.append(Patch(
+                facecolor=ann_cmaps[col][cat], edgecolor="gray",
+                linewidth=0.3, label=str(cat),
+            ))
+    ax_leg.legend(
+        handles=patches, loc="upper left",
+        bbox_to_anchor=(0.0, 1.0), fontsize=6,
+        frameon=True, fancybox=False, edgecolor="gray",
+        handlelength=1.0, handleheight=0.8,
+        borderaxespad=0, labelspacing=0.2,
+    )
+
+    # ── 11. Empty top-row placeholders ───────────────────────────────────
+    for c in [col_grp, col_cbar, col_leg]:
+        ax_e = fig.add_subplot(gs[0, c])
+        ax_e.axis("off")
+
+    fig.suptitle(f"{sample_name}  |  {n_cells} cells", fontsize=11, y=1.005)
+
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved → {output_path}  ({time.perf_counter() - t0:.2f}s)")

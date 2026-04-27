@@ -35,50 +35,63 @@ def main():
     
     # Input
     parser.add_argument("--input", "-i", required=True,
-                        help="Input UMI count matrix (.csv, .tsv, .txt, or .mtx)")
+                        help="[required] Input UMI count matrix (.csv, .tsv, .txt, or .mtx)")
     parser.add_argument("--genes", default=None,
-                        help="Gene names file (required for .mtx input)")
+                        help="[optional] Gene names file (required for .mtx input)")
     parser.add_argument("--barcodes", default=None,
-                        help="Barcode names file (required for .mtx input)")
-    
+                        help="[optional] Barcode names file (required for .mtx input)")
+
     # Parameters
     parser.add_argument("--id-type", default="S", choices=["S", "E"],
-                        help="Gene ID type: S=Symbol, E=Ensembl (default: S)")
+                        help="[optional] Gene ID type: S=Symbol, E=Ensembl (default: S)")
     parser.add_argument("--cell-line", default="no", choices=["yes", "no"],
-                        help="Pure cell line mode (default: no)")
+                        help="[optional] Pure cell line mode (default: no)")
     parser.add_argument("--ngene-chr", type=int, default=5,
-                        help="Min genes per chromosome (default: 5)")
+                        help="[optional] Min genes per chromosome (default: 5)")
     parser.add_argument("--min-genes", type=int, default=200,
-                        help="Min genes per cell (default: 200)")
+                        help="[optional] Min genes per cell (default: 200)")
     parser.add_argument("--low-dr", type=float, default=0.05,
-                        help="Min detection rate for smoothing (default: 0.05)")
+                        help="[optional] Min detection rate for smoothing (default: 0.05)")
     parser.add_argument("--up-dr", type=float, default=0.1,
-                        help="Min detection rate for segmentation (default: 0.1)")
+                        help="[optional] Min detection rate for segmentation (default: 0.1)")
     parser.add_argument("--win-size", type=int, default=25,
-                        help="Window size for segmentation (default: 25)")
+                        help="[optional] Window size for segmentation (default: 25)")
     parser.add_argument("--norm-cells", default="",
-                        help="File with known normal cell barcodes (one per line)")
+                        help="[optional] File with known normal cell barcodes (one per line)")
     parser.add_argument("--ks-cut", type=float, default=0.1,
-                        help="KS test cutoff for breakpoints (default: 0.1)")
+                        help="[optional] KS test cutoff for breakpoints (default: 0.1)")
     parser.add_argument("--sample-name", default="",
-                        help="Sample name prefix for output files")
+                        help="[optional] Sample name prefix for output files")
     parser.add_argument("--distance", default="euclidean",
                         choices=["euclidean", "pearson", "spearman"],
-                        help="Distance metric for clustering (default: euclidean)")
+                        help="[optional] Distance metric for clustering (default: euclidean)")
     parser.add_argument("--output-seg", action="store_true",
-                        help="Output .seg file for IGV")
+                        help="[optional] Output .seg file for IGV")
     parser.add_argument("--plot-genes", dest="plot_genes", action="store_true", default=True,
-                        help="Generate the heatmap plot (default: enabled)")
+                        help="[optional] Generate the heatmap plot (default: enabled)")
     parser.add_argument("--no-plot-genes", dest="plot_genes", action="store_false",
-                        help="Skip heatmap plotting for faster runs")
+                        help="[optional] Skip heatmap plotting for faster runs")
     parser.add_argument("--genome", default="hg20", choices=["hg20", "mm10"],
-                        help="Genome assembly (default: hg20)")
+                        help="[optional] Genome assembly (default: hg20)")
     parser.add_argument("--n-cores", type=int, default=1,
-                        help="Number of CPU cores (default: 1)")
+                        help="[optional] Number of CPU cores (default: 1)")
     parser.add_argument("--pca-components", type=int, default=None,
-                        help="Adaptive PCA component cap for large clustering steps (default: automatic by cell count)")
+                        help="[optional] Adaptive PCA component cap for large clustering steps (default: automatic by cell count)")
     parser.add_argument("--output-dir", "-o", default=".",
-                        help="Output directory (default: current)")
+                        help="[optional] Output directory (default: current)")
+
+    # Annotated heatmap options
+    parser.add_argument("--meta", default=None,
+                        metavar="CSV",
+                        help="[optional] Per-cell annotation CSV for the annotated heatmap. "
+                             "First column = cell name; remaining columns are drawn "
+                             "as coloured sidebars. Header is auto-detected. "
+                             "When provided, an additional annotated heatmap is saved "
+                             "alongside the standard one.")
+    parser.add_argument("--row-split", default=None,
+                        metavar="COLUMN",
+                        help="[optional] Column in --meta used to split and label heatmap rows. "
+                             "Defaults to the second column of the CSV when not given.")
     
     args = parser.parse_args()
     
@@ -178,6 +191,26 @@ def main():
             pred = result["prediction"]["copykat.pred"].value_counts()
             for k, v in pred.items():
                 print(f"  {k}: {v} cells")
+
+        if args.meta and args.plot_genes and "CNAmat" in result:
+            print("\nGenerating annotated heatmap...")
+            from copykat_py.plotting import plot_heatmap_annotated
+            cna_df = result["CNAmat"]
+            ann_mat = cna_df.iloc[:, 3:].values.astype(np.float32)
+            ann_cell_names = cna_df.columns[3:].tolist()
+            ann_chrom_info = cna_df.iloc[:, 0].values
+            ann_output = f"{args.sample_name}_copykat_annotated_heatmap.png"
+            plot_heatmap_annotated(
+                mat=ann_mat,
+                cell_names=ann_cell_names,
+                chrom_info=ann_chrom_info,
+                meta_csv=args.meta,
+                row_split_col=args.row_split,
+                sample_name=args.sample_name,
+                distance=args.distance,
+                n_cores=args.n_cores,
+                output_path=ann_output,
+            )
     finally:
         print(f"CopyKAT-Py run finished: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Detailed log saved to: {log_path}")
@@ -186,6 +219,107 @@ def main():
         sys.stdout = old_stdout
         sys.stderr = old_stderr
         log_handle.close()
+
+
+def plot_main():
+    """Entry point for ``copykat-py-plot``: annotated heatmap from CNA results."""
+    parser = argparse.ArgumentParser(
+        prog="copykat-py-plot",
+        description=(
+            "Draw an annotated CNA heatmap from a copykat-py CNA results file "
+            "and a per-cell metadata CSV.  Rows are split and colour-labelled by "
+            "a chosen metadata column; cells within each group are ordered by "
+            "hierarchical or K-means clustering so intra-group CNA structure is "
+            "preserved."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples
+--------
+  # Use second column (leiden_cluster) as row-split (default):
+  copykat-py-plot \\
+      --cna  sample_copykat_CNA_results.txt \\
+      --meta meta.csv
+
+  # Explicitly split rows by inferred_CellType and also annotate leiden_cluster:
+  copykat-py-plot \\
+      --cna  sample_copykat_CNA_results.txt \\
+      --meta xenium_ft_full_meta_celltype_leiden.csv \\
+      --row-split inferred_CellType \\
+      --sample-name xenium_all_cells \\
+      --n-cores 40 \\
+      --output xenium_annotated_heatmap.png
+
+Meta CSV format
+---------------
+  First column : cell name (must match column names in the CNA results file)
+  Remaining    : any metadata (cell type, cluster, condition, …)
+
+  With header:    cell_name,leiden_cluster,inferred_CellType
+  Without header: aaaajgij-1,5,lumhr   (first row treated as data)
+""",
+    )
+
+    parser.add_argument(
+        "--cna", "-c", required=True,
+        help="[required] CNA results file produced by copykat-py "
+             "(*_copykat_CNA_results.txt, tab-separated). "
+             "First three columns must be chrom / chrompos / abspos; "
+             "remaining columns are cells.",
+    )
+    parser.add_argument(
+        "--meta", "-m", required=True,
+        help="[required] Annotation CSV.  First column = cell name; remaining columns are "
+             "drawn as coloured sidebars.  Header row is auto-detected.",
+    )
+    parser.add_argument(
+        "--row-split", default=None,
+        metavar="COLUMN",
+        help="[optional] Metadata column used to split and label rows.  "
+             "Defaults to the second column of the CSV when not supplied.",
+    )
+    parser.add_argument(
+        "--sample-name", default="",
+        help="[optional] Label shown in the figure title and used as the output filename "
+             "prefix when --output is not given.",
+    )
+    parser.add_argument(
+        "--distance", default="euclidean",
+        choices=["euclidean", "pearson", "spearman"],
+        help="[optional] Distance metric for within-group cell clustering (default: euclidean).",
+    )
+    parser.add_argument(
+        "--n-cores", type=int, default=1,
+        help="[optional] Parallel threads for clustering (default: 1).",
+    )
+    parser.add_argument(
+        "--output", "-o", default=None,
+        metavar="PATH",
+        help="[optional] Output PNG path.  Defaults to "
+             "{sample_name}_copykat_annotated_heatmap.png.",
+    )
+
+    args = parser.parse_args()
+
+    print(f"Loading CNA results: {args.cna}")
+    cna_df = pd.read_csv(args.cna, sep="\t", index_col=False)
+    cell_names = cna_df.columns[3:].tolist()
+    chrom_info = cna_df.iloc[:, 0].values
+    mat = cna_df.iloc[:, 3:].values.astype(np.float32)
+    print(f"  {mat.shape[1]} cells × {mat.shape[0]} bins")
+
+    from copykat_py.plotting import plot_heatmap_annotated
+    plot_heatmap_annotated(
+        mat=mat,
+        cell_names=cell_names,
+        chrom_info=chrom_info,
+        meta_csv=args.meta,
+        row_split_col=args.row_split,
+        sample_name=args.sample_name,
+        distance=args.distance,
+        n_cores=args.n_cores,
+        output_path=args.output,
+    )
 
 
 if __name__ == "__main__":
