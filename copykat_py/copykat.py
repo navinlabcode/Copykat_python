@@ -33,13 +33,16 @@ except ImportError:
 from copykat_py.annotation import annotate_genes
 from copykat_py.smoothing import dlm_smooth, get_last_dlm_smooth_info
 from copykat_py.baseline import (
-    ADAPTIVE_PCA_COMPONENTS,
+    AUTO_PCA_CELL_COUNT_CUTOFF,
+    AUTO_PCA_LARGE_SAMPLE,
+    AUTO_PCA_SMALL_SAMPLE,
     FULL_CLUSTER_MAX_CELLS,
     baseline_norm_cl,
     baseline_gmm,
     baseline_synthetic,
     _hierarchical_cluster,
     get_last_cluster_info,
+    resolve_adaptive_pca_components,
 )
 from copykat_py.segmentation import cna_mcmc, get_last_cna_mcmc_info
 from copykat_py.convert_bins import convert_to_bins, get_last_convert_bins_info
@@ -271,7 +274,7 @@ def _keep_cells_by_chr_coverage(values, chroms, ngene_chr):
 def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=200,
             LOW_DR=0.05, UP_DR=0.1, win_size=25, norm_cell_names="",
             KS_cut=0.1, sam_name="", distance="euclidean", output_seg=False,
-            plot_genes=True, genome="hg20", n_cores=1):
+            plot_genes=True, genome="hg20", n_cores=1, pca_components=None):
     """Run CopyKAT analysis: infer copy number profiles from scRNA-seq data.
     
     Parameters
@@ -309,6 +312,10 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         "hg20" or "mm10".
     n_cores : int
         Number of CPU cores for parallel computation.
+    pca_components : int or None
+        Adaptive PCA component cap for large clustering steps. When omitted,
+        CopyKAT-Py uses the built-in rule: 256 PCs for fewer than 50,000
+        input cells, otherwise 128 PCs.
     
     Returns
     -------
@@ -335,7 +342,19 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
     print("step 1: read and filter data ...")
     step_start = time.perf_counter()
     rawmat, original_cell_names, prep_stats = _prepare_input_dataframe(rawmat, min_gene_per_cell, LOW_DR)
+    input_cell_count = int(len(original_cell_names))
+    selected_pca_components = resolve_adaptive_pca_components(input_cell_count, pca_components=pca_components)
+    runtime_info["pca_components"] = int(selected_pca_components)
+    runtime_info["pca_selection_mode"] = "manual" if pca_components is not None else "auto_by_input_cell_count"
+    runtime_info["pca_selection_input_cells"] = input_cell_count
+    runtime_info["pca_selection_cutoff"] = AUTO_PCA_CELL_COUNT_CUTOFF
+    runtime_info["pca_selection_small_sample"] = AUTO_PCA_SMALL_SAMPLE
+    runtime_info["pca_selection_large_sample"] = AUTO_PCA_LARGE_SAMPLE
     print(f"  {rawmat.shape[0]} genes, {rawmat.shape[1]} cells in raw data")
+    print(
+        f"  adaptive PCA components: {selected_pca_components} "
+        f"({'manual override' if pca_components is not None else f'auto from input cell count {input_cell_count}'})"
+    )
     if prep_stats["filtered_cells"] > 0:
         print(f"  filtered out {prep_stats['filtered_cells']} cells with <= {min_gene_per_cell} genes; remaining {rawmat.shape[1]} cells")
     print(f"  {rawmat.shape[0]} genes past LOW_DR filtering")
@@ -416,7 +435,12 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
     
     if cell_line == "yes":
         print("  running pure cell line mode")
-        relt = baseline_synthetic(norm_mat_smooth, min_cells=10, n_cores=n_cores)
+        relt = baseline_synthetic(
+            norm_mat_smooth,
+            min_cells=10,
+            n_cores=n_cores,
+            pca_components=selected_pca_components,
+        )
         norm_mat_relat = relt["expr_relat"]
         CL = relt["cl"]
         WNS = "run with cell line mode"
@@ -444,7 +468,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             metric="euclidean",
             n_cores=n_cores,
             reduce=step4_reduce,
-            pca_components=ADAPTIVE_PCA_COMPONENTS,
+            pca_components=selected_pca_components,
         )
         
         while not all(np.bincount(CL)[np.bincount(CL) > 0] > 5):
@@ -459,7 +483,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                     metric="euclidean",
                     n_cores=n_cores,
                     reduce=step4_reduce,
-                    pca_components=ADAPTIVE_PCA_COMPONENTS,
+                    pca_components=selected_pca_components,
                 )
             if km == 2:
                 break
@@ -469,7 +493,13 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         norm_mat_relat = norm_mat_smooth - basel[:, np.newaxis]
     else:
         # Auto-detect normal cells
-        basa = baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=n_cores, cell_names=cell_name_list)
+        basa = baseline_norm_cl(
+            norm_mat_smooth,
+            min_cells=5,
+            n_cores=n_cores,
+            cell_names=cell_name_list,
+            pca_components=selected_pca_components,
+        )
         basel = basa["basel"]
         WNS = basa["WNS"]
         preN = basa["preN"]
@@ -492,6 +522,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                     Nfraq_cut=0.99,
                     RE_before=basa,
                     n_cores=n_cores,
+                    pca_components=selected_pca_components,
                 )
                 basel = basa["basel"]
                 WNS = basa["WNS"]
@@ -540,7 +571,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             metric="euclidean",
             n_cores=n_cores,
             reduce=step4_reduce,
-            pca_components=ADAPTIVE_PCA_COMPONENTS,
+            pca_components=selected_pca_components,
         )
     
     # =========================================================================
@@ -612,7 +643,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                 metric="euclidean",
                 n_cores=n_cores,
                 reduce=step7_reduce,
-                pca_components=ADAPTIVE_PCA_COMPONENTS,
+                pca_components=selected_pca_components,
             )
             hc_umap = labels
             
@@ -670,7 +701,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                 metric="euclidean",
                 n_cores=n_cores,
                 reduce=step8_reduce,
-                pca_components=ADAPTIVE_PCA_COMPONENTS,
+                pca_components=selected_pca_components,
             )
             hc_final = labels_final
             
@@ -700,7 +731,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                 metric="euclidean",
                 n_cores=n_cores,
                 reduce=step8_reduce,
-                pca_components=ADAPTIVE_PCA_COMPONENTS,
+                pca_components=selected_pca_components,
             )
             labels_final, Z_final = labels, Z
         cluster_info = get_last_cluster_info()
@@ -806,7 +837,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             metric="euclidean",
             n_cores=n_cores,
             reduce=step7_reduce,
-            pca_components=ADAPTIVE_PCA_COMPONENTS,
+            pca_components=selected_pca_components,
         )
         hc_umap = labels
         
@@ -861,7 +892,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             metric="euclidean",
             n_cores=n_cores,
             reduce=step8_reduce,
-            pca_components=ADAPTIVE_PCA_COMPONENTS,
+            pca_components=selected_pca_components,
         )
         hc_final = labels_final
         

@@ -28,11 +28,29 @@ _LAST_CLUSTER_INFO = {
 }
 
 FULL_CLUSTER_MAX_CELLS = 2000
-ADAPTIVE_PCA_COMPONENTS = 512
+AUTO_PCA_CELL_COUNT_CUTOFF = 50000
+AUTO_PCA_SMALL_SAMPLE = 256
+AUTO_PCA_LARGE_SAMPLE = 128
+ADAPTIVE_PCA_COMPONENTS = AUTO_PCA_LARGE_SAMPLE
 
 
 def get_last_cluster_info():
     return dict(_LAST_CLUSTER_INFO)
+
+
+def resolve_adaptive_pca_components(n_cells, pca_components=None):
+    """Choose the PCA component cap for large-cell clustering.
+
+    When ``pca_components`` is provided, that explicit value is used.
+    Otherwise, use the project default policy:
+    - fewer than 50,000 input cells -> 256 PCs
+    - 50,000 or more input cells -> 128 PCs
+    """
+    if pca_components is not None:
+        return int(pca_components)
+    if int(n_cells) < AUTO_PCA_CELL_COUNT_CUTOFF:
+        return AUTO_PCA_SMALL_SAMPLE
+    return AUTO_PCA_LARGE_SAMPLE
 
 
 def _cluster_sizes(labels):
@@ -209,7 +227,7 @@ def _fit_gmm_3component(data, mu_init=None, sigma_init=None, max_iter=500, tol=1
     return means, weights, sigma
 
 
-def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
+def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None, pca_components=None):
     """Find a cluster of diploid cells using integrative clustering + GMM variance test.
     
     Mirrors baseline.norm.cl.R: 
@@ -232,6 +250,7 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
     dict with keys: 'basel', 'WNS', 'preN', 'cl'
     """
     n_genes, n_cells = norm_mat_smooth.shape
+    selected_pca_components = resolve_adaptive_pca_components(n_cells, pca_components=pca_components)
     
     # Hierarchical clustering
     data_t = norm_mat_smooth.T  # cells × genes
@@ -244,7 +263,7 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
         metric="euclidean",
         n_cores=n_cores,
         reduce=step4_reduce,
-        pca_components=ADAPTIVE_PCA_COMPONENTS,
+        pca_components=selected_pca_components,
     )
     
     # Reduce clusters until all have > min_cells
@@ -260,7 +279,7 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
                 metric="euclidean",
                 n_cores=n_cores,
                 reduce=step4_reduce,
-                pca_components=ADAPTIVE_PCA_COMPONENTS,
+                pca_components=selected_pca_components,
             )
         if km == 2:
             break
@@ -297,7 +316,7 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
             metric="euclidean",
             n_cores=n_cores,
             reduce=step4_reduce,
-            pca_components=ADAPTIVE_PCA_COMPONENTS,
+            pca_components=selected_pca_components,
         )
     
     # Compute silhouette on a stratified subsample for medium/large datasets.
@@ -350,7 +369,7 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None):
 
 
 def baseline_gmm(CNA_mat, cell_names, max_normal=5, mu_cut=0.05, Nfraq_cut=0.99,
-                  RE_before=None, n_cores=1):
+                  RE_before=None, n_cores=1, pca_components=None):
     """Identify diploid cells one-by-one using GMM (fallback when clustering is uncertain).
     
     Mirrors baseline.GMM.R.
@@ -377,6 +396,7 @@ def baseline_gmm(CNA_mat, cell_names, max_normal=5, mu_cut=0.05, Nfraq_cut=0.99,
     dict with keys: 'basel', 'WNS', 'preN', 'cl'
     """
     n_genes, n_cells = CNA_mat.shape
+    selected_pca_components = resolve_adaptive_pca_components(n_cells, pca_components=pca_components)
     N_normal = []
     N_normal_labels = []
     
@@ -418,7 +438,7 @@ def baseline_gmm(CNA_mat, cell_names, max_normal=5, mu_cut=0.05, Nfraq_cut=0.99,
         metric="euclidean",
         n_cores=n_cores,
         reduce=step4_reduce,
-        pca_components=ADAPTIVE_PCA_COMPONENTS,
+        pca_components=selected_pca_components,
     )
     
     if len(N_normal) > 2:
@@ -437,7 +457,7 @@ def baseline_gmm(CNA_mat, cell_names, max_normal=5, mu_cut=0.05, Nfraq_cut=0.99,
                     "preN": N_normal, "cl": labels}
 
 
-def baseline_synthetic(norm_mat, min_cells=10, n_cores=1):
+def baseline_synthetic(norm_mat, min_cells=10, n_cores=1, pca_components=None):
     """Estimate baseline using synthetic normal profiles (for cell line data).
     
     Mirrors baseline.synthetic.R.
@@ -456,17 +476,30 @@ def baseline_synthetic(norm_mat, min_cells=10, n_cores=1):
     dict with keys: 'expr_relat', 'cl'
     """
     n_genes, n_cells = norm_mat.shape
+    selected_pca_components = resolve_adaptive_pca_components(n_cells, pca_components=pca_components)
     data_t = norm_mat.T
     
     km = 6
-    labels, Z = _hierarchical_cluster(data_t, km, method="ward", metric="euclidean")
+    labels, Z = _hierarchical_cluster(
+        data_t,
+        km,
+        method="ward",
+        metric="euclidean",
+        pca_components=selected_pca_components,
+    )
     
     while not all(np.bincount(labels)[np.bincount(labels) > 0] > min_cells):
         km -= 1
         if Z is not None:
             labels = fcluster(Z, t=km, criterion="maxclust")
         else:
-            labels, Z = _hierarchical_cluster(data_t, km, method="ward", metric="euclidean")
+            labels, Z = _hierarchical_cluster(
+                data_t,
+                km,
+                method="ward",
+                metric="euclidean",
+                pca_components=selected_pca_components,
+            )
         if km == 2:
             break
     

@@ -75,6 +75,8 @@ def main():
                         help="Genome assembly (default: hg20)")
     parser.add_argument("--n-cores", type=int, default=1,
                         help="Number of CPU cores (default: 1)")
+    parser.add_argument("--pca-components", type=int, default=None,
+                        help="Adaptive PCA component cap for large clustering steps (default: automatic by cell count)")
     parser.add_argument("--output-dir", "-o", default=".",
                         help="Output directory (default: current)")
     
@@ -147,6 +149,8 @@ def main():
     print(f"Working directory: {args.output_dir}")
     print(f"Input: {args.input}")
     print(f"Requested cores: {args.n_cores}")
+    if args.pca_components is not None:
+        print(f"Requested adaptive PCA components: {args.pca_components}")
     
     try:
         result = copykat(
@@ -166,6 +170,7 @@ def main():
             plot_genes=args.plot_genes,
             genome=args.genome,
             n_cores=args.n_cores,
+            pca_components=args.pca_components,
         )
         
         print("CopyKAT-Py analysis complete.")
