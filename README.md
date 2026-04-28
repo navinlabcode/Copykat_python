@@ -24,10 +24,39 @@ CopyKAT-Python is not a line-by-line clone of CopyKAT-R. It is an independent Py
 ## Installation
 
 **From source:**
+
+Installs `copykat-py` into your current environment
+
 ```bash
 git clone https://github.com/navinlabcode/Copykat_python.git
 cd Copykat_python
 pip install -e .
+```
+
+**From `environment.yml` with conda:**
+
+Creates a fresh conda environment for `copykat-py` and installs all required packages first
+
+```bash
+git clone https://github.com/navinlabcode/Copykat_python.git
+cd Copykat_python
+conda env create -f environment.yml
+conda activate copykit_py
+```
+
+After installed the required packages and then installs
+`copykat-py` itself in editable mode through:
+
+```yaml
+pip:
+  - -e .
+```
+
+After activation, you can confirm the commands are available with:
+
+```bash
+copykat_matrix --help
+copykat_anndata --help
 ```
 
 **Singularity container** (recommended for HPC environments):
@@ -43,6 +72,146 @@ singularity exec copykat_py.sif copykat-py --help
 CopyKAT-Python shares identical parameters with CopyKAT-R, with a few convenient additions.
 
 <img width="956" height="508" alt="image" src="https://github.com/user-attachments/assets/144da3e7-d856-4f75-91fa-e89883e98213" />
+
+### Choose the right entry point
+
+CopyKAT-Python supports two main analysis workflows:
+
+- `copykat_matrix` / `copykat-py`: matrix-first workflow for count matrix exported from R and 10X pipeline outputs
+- `copykat_anndata()`: Python AnnData workflow for an already loaded in-memory `AnnData` object
+
+If you are starting a new workflow:
+
+- use `copykat_matrix`/ `copykat-py` when your input is a matrix file such as `.csv`, `.tsv`, or `.mtx`
+- use the Python AnnData API when your input is already an `AnnData` object
+- use the Python API when you are already working inside a notebook or script
+
+### Terminal command — `copykat_matrix` / `copykat-py`
+
+Use this workflow when you want to run directly from a raw count matrix on disk.
+This is the most natural entry point for Cell Ranger, Seurat-exported matrices,
+and other R-style preprocessing workflows.
+
+**Example: CSV or TSV matrix**
+
+```bash
+copykat_matrix \
+    --input sample_counts.csv \
+    --sample-name sample1 \
+    --genome hg20 \
+    --n-cores 24 \
+    --output-dir results/sample1
+```
+
+**Example: 10X matrix market input**
+
+```bash
+copykat_matrix \
+    --input filtered_feature_bc_matrix/matrix.mtx.gz \
+    --genes filtered_feature_bc_matrix/features.tsv.gz \
+    --barcodes filtered_feature_bc_matrix/barcodes.tsv.gz \
+    --sample-name sample1 \
+    --genome hg20 \
+    --n-cores 24 \
+    --output-dir results/sample1
+```
+
+**Example: matrix input with metadata for annotated heatmaps**
+
+```bash
+copykat_matrix \
+    --input sample_counts.csv \
+    --meta sample_metadata.csv \
+    --row-split CellType \
+    --sample-name sample1 \
+    --genome hg20 \
+    --n-cores 24 \
+    --output-dir results/sample1
+```
+
+If you use metadata annotations, `copykat_matrix` is the recommended command.
+
+### Python API — matrix input via `copykat()`
+
+Use this when the count matrix is already loaded in Python.
+
+```python
+import pandas as pd
+from copykat_py import copykat
+
+counts = pd.read_csv("sample_counts.csv", index_col=0)
+
+result = copykat(
+    rawmat=counts,
+    id_type="S",
+    sam_name="sample1",
+    genome="hg20",
+    distance="euclidean",
+    n_cores=24,
+)
+
+print(result["prediction"].head())
+```
+
+You can also pass a `rawmat` dictionary with:
+
+- `matrix`: genes × cells matrix
+- `genes`: gene names
+- `barcodes`: cell names
+
+This is useful when you have already built a sparse matrix in memory.
+
+
+### Python API — AnnData input via `copykat_anndata()`
+
+Use this when the `AnnData` object is already loaded in memory.
+
+```python
+import anndata as ad
+from copykat_py import copykat_anndata
+
+adata = ad.read_h5ad("sample.h5ad")
+
+result = copykat_anndata(
+    adata=adata,
+    selecting_meta=["CellType", "copykat_pred", "seurat_clusters"],
+    row_split="CellType",
+    sample_name="sample1",
+    genome="hg20",
+    distance="euclidean",
+    n_cores=24,
+    output_dir="results/sample1_anndata",
+)
+
+print(result["prediction"]["copykat.pred"].value_counts())
+```
+
+This helper expects an already loaded `AnnData` object. The recommended pattern is:
+
+1. read the file yourself with `ad.read_h5ad(...)`
+2. inspect or subset the object as needed
+3. pass that in-memory object to `copykat_anndata(adata=...)`
+
+Useful AnnData-side options:
+
+- `layer`: use `adata.layers[...]` instead of `adata.X`
+- `use_raw`: use `adata.raw.X` and `adata.raw.var_names`
+- `selecting_meta`: export selected `adata.obs` columns for annotated heatmaps
+- `row_split`: which selected metadata column should define row groups
+
+### Output files
+
+All wrappers run the same core CopyKAT pipeline and produce the same main outputs:
+
+- `*_copykat_CNA_results.txt`
+- `*_copykat_prediction.txt`
+- `*_copykat_heatmap.png`
+- `copykat_run.log`
+
+When metadata is supplied for annotated heatmaps:
+
+- matrix workflows use your provided metadata CSV
+- AnnData workflows also write an internal `*_selected_obs_meta.csv` file before plotting
 
 ---
 
