@@ -37,6 +37,11 @@ from copykat_py.baseline import (
     AUTO_PCA_LARGE_SAMPLE,
     AUTO_PCA_SMALL_SAMPLE,
     FULL_CLUSTER_MAX_CELLS,
+    MOUSE_AUTO_PCA_LARGE_SAMPLE,
+    MOUSE_AUTO_PCA_MEDIUM_CELL_COUNT_CUTOFF,
+    MOUSE_AUTO_PCA_MEDIUM_SAMPLE,
+    MOUSE_AUTO_PCA_SMALL_CELL_COUNT_CUTOFF,
+    MOUSE_AUTO_PCA_SMALL_SAMPLE,
     baseline_norm_cl,
     baseline_gmm,
     baseline_synthetic,
@@ -334,8 +339,10 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         Number of CPU cores for parallel computation.
     pca_components : int or None
         Adaptive PCA component cap for large clustering steps. When omitted,
-        CopyKAT-Py uses the built-in rule: 256 PCs for fewer than 50,000
-        input cells, otherwise 128 PCs.
+        CopyKAT-Py uses the built-in rule:
+        - `hg20`: 256 PCs for fewer than 50,000 input cells, otherwise 128
+        - `mm10`: 512 PCs for fewer than 20,000 input cells, 256 PCs for
+          fewer than 40,000 input cells, otherwise 128
     meta_csv : str or None
         Path to a per-cell annotation CSV for the annotated heatmap.
         First column = cell name; remaining columns become coloured annotation
@@ -372,13 +379,26 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
     step_start = time.perf_counter()
     rawmat, original_cell_names, prep_stats = _prepare_input_dataframe(rawmat, min_gene_per_cell, LOW_DR)
     input_cell_count = int(len(original_cell_names))
-    selected_pca_components = resolve_adaptive_pca_components(input_cell_count, pca_components=pca_components)
+    selected_pca_components = resolve_adaptive_pca_components(
+        input_cell_count,
+        pca_components=pca_components,
+        genome=genome,
+    )
     runtime_info["pca_components"] = int(selected_pca_components)
     runtime_info["pca_selection_mode"] = "manual" if pca_components is not None else "auto_by_input_cell_count"
+    runtime_info["pca_selection_genome"] = str(genome)
     runtime_info["pca_selection_input_cells"] = input_cell_count
-    runtime_info["pca_selection_cutoff"] = AUTO_PCA_CELL_COUNT_CUTOFF
-    runtime_info["pca_selection_small_sample"] = AUTO_PCA_SMALL_SAMPLE
-    runtime_info["pca_selection_large_sample"] = AUTO_PCA_LARGE_SAMPLE
+    if str(genome).strip().lower() == "mm10":
+        runtime_info["pca_selection_rule"] = (
+            f"<{MOUSE_AUTO_PCA_SMALL_CELL_COUNT_CUTOFF}->{MOUSE_AUTO_PCA_SMALL_SAMPLE},"
+            f"<{MOUSE_AUTO_PCA_MEDIUM_CELL_COUNT_CUTOFF}->{MOUSE_AUTO_PCA_MEDIUM_SAMPLE},"
+            f">={MOUSE_AUTO_PCA_MEDIUM_CELL_COUNT_CUTOFF}->{MOUSE_AUTO_PCA_LARGE_SAMPLE}"
+        )
+    else:
+        runtime_info["pca_selection_rule"] = (
+            f"<{AUTO_PCA_CELL_COUNT_CUTOFF}->{AUTO_PCA_SMALL_SAMPLE},"
+            f">={AUTO_PCA_CELL_COUNT_CUTOFF}->{AUTO_PCA_LARGE_SAMPLE}"
+        )
     print(f"  {rawmat.shape[0]} genes, {rawmat.shape[1]} cells in raw data")
     print(
         f"  adaptive PCA components: {selected_pca_components} "
@@ -469,6 +489,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             min_cells=10,
             n_cores=n_cores,
             pca_components=selected_pca_components,
+            genome=genome,
         )
         norm_mat_relat = relt["expr_relat"]
         CL = relt["cl"]
@@ -528,6 +549,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
             n_cores=n_cores,
             cell_names=cell_name_list,
             pca_components=selected_pca_components,
+            genome=genome,
         )
         basel = basa["basel"]
         WNS = basa["WNS"]
@@ -552,6 +574,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                     RE_before=basa,
                     n_cores=n_cores,
                     pca_components=selected_pca_components,
+                    genome=genome,
                 )
                 basel = basa["basel"]
                 WNS = basa["WNS"]
