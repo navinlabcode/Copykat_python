@@ -298,16 +298,15 @@ def _safe_dendrogram_with_recursion_management(Z, ax, n_cells):
 
 
 def _add_chr_labels(ax, chrom_info):
-    """Overlay chromosome name labels on a chromosome-bar axes.
+    """Place chromosome name labels just above the chromosome-bar axes.
 
-    Labels are centred in each chromosome band and coloured for contrast
-    (white on the black/odd bands, black on the white/even bands).
+    Uses a mixed-coordinate transform (x in data coordinates, y in axes
+    fraction) so labels sit above the coloured band without overlapping it.
     Chromosomes 23 and 24 are labelled "X" and "Y" respectively.
     """
     chrom_arr = np.asarray(chrom_info)
     n_bins = len(chrom_arr)
 
-    # Chromosome boundaries via value-change detection (works for int or str)
     chrom_s = np.array([str(c) for c in chrom_arr])
     boundary_mask = np.concatenate([[True], chrom_s[1:] != chrom_s[:-1]])
     starts = np.where(boundary_mask)[0]
@@ -321,18 +320,15 @@ def _add_chr_labels(ax, chrom_info):
         except (ValueError, TypeError):
             return str(c)
 
+    # x in data coords, y in axes fraction — place labels just above the bar
+    trans = ax.get_xaxis_transform()
     ax.set_xlim(-0.5, n_bins - 0.5)
-    ax.set_ylim(0, 1)
     for cid, s, e in zip(chr_ids, starts, ends):
         mid = (s + e - 1) / 2.0
-        try:
-            is_odd = int(float(str(cid))) % 2 == 1
-        except (ValueError, TypeError):
-            is_odd = True
-        ax.text(mid, 0.5, _chr_label(cid),
-                ha="center", va="center", fontsize=5.5,
-                color="white" if is_odd else "black",
-                clip_on=True)
+        ax.text(mid, 1.08, _chr_label(cid),
+                transform=trans,
+                ha="center", va="bottom", fontsize=8,
+                color="black", clip_on=False)
 
 
 def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
@@ -464,7 +460,6 @@ def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
                   interpolation="nearest")
     ax_chr.set_xticks([])
     ax_chr.set_yticks([])
-    ax_chr.set_ylabel("Chr", fontsize=8)
     _add_chr_labels(ax_chr, chrom_info)
 
     # --- Main heatmap -----------------------------------------------------
@@ -479,7 +474,7 @@ def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
     ax_heat.set_xlabel("Genomic position")
     ax_heat.set_yticks([])
     title_parts = [p for p in (WNS1, WNS) if p]
-    ax_heat.set_title("; ".join(title_parts) if title_parts else "", fontsize=12)
+    ax_heat.set_title("; ".join(title_parts) if title_parts else "", fontsize=16)
 
     # Chromosome boundaries
     chrom_changes = np.where(np.diff(chrom_info.astype(int)))[0]
@@ -532,7 +527,7 @@ def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
                        interpolation="nearest")
         ax_pred.set_xticks([])
         ax_pred.set_yticks([])
-        ax_pred.set_title("Pred", fontsize=8, pad=4)
+        ax_pred.set_title("Pred", fontsize=11, pad=4)
         for spine in ax_pred.spines.values():
             spine.set_linewidth(0.6)
 
@@ -557,7 +552,7 @@ def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
             handles=legend_elements,
             loc="upper left",
             bbox_to_anchor=(0.0, 1.0),
-            fontsize=9,
+            fontsize=12,
             frameon=True,
             fancybox=False,
             edgecolor="black",
@@ -584,13 +579,31 @@ def _natural_sort_key(s):
     return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", str(s))]
 
 
+# Fixed colors for copykat prediction values (aneuploid=orange, diploid=blue)
+_COPYKAT_PRED_COLORS = {
+    "aneuploid"              : "#E8601C",  # orange
+    "c2:aneuploid:low.conf"  : "#F4A86A",  # light orange
+    "diploid"                : "#3A87C8",  # blue
+    "c1:diploid:low.conf"    : "#9EC8E8",  # light blue
+    "not.defined"            : "#B0B0B0",  # grey
+    "unknown"                : "#D4D4D4",  # light grey
+}
+
+
 def _assign_cat_colors(values):
     """Return {category: hex_color} for every unique value in *values*.
 
-    Uses tab10 (≤10), tab20 (≤20), or HSV-spaced colors for larger sets.
+    CopyKAT prediction columns (containing "aneuploid" or "diploid" values)
+    always use the fixed palette: orange for aneuploid, blue for diploid.
+    All other columns use tab10/tab20/HSV auto-assignment.
     The "unknown" category (cells missing from the meta CSV) is always grey.
     """
     cats = sorted({str(v) for v in values}, key=_natural_sort_key)
+
+    # Detect copykat prediction columns by value content
+    if any("aneuploid" in c or "diploid" in c for c in cats):
+        return {cat: _COPYKAT_PRED_COLORS.get(cat, "#B0B0B0") for cat in cats}
+
     n = len(cats)
     if n <= 10:
         palette = [mcolors.to_hex(c) for c in plt.cm.tab10.colors]
@@ -766,7 +779,7 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
     col_leg = 3 + k      # categorical legend
     n_cols_total = 4 + k
 
-    width_ratios = [1.5] + [1.0] * k + [35.0, 0.8, 5.5]
+    width_ratios = [1.5] + [1.0] * k + [35.0, 0.8, 8.0]
     gs = GridSpec(
         2, n_cols_total,
         height_ratios=[1, 50],
@@ -786,7 +799,7 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
     )
     ax_heat.set_xticks([])
     ax_heat.set_yticks([])
-    ax_heat.set_xlabel("Genomic position", fontsize=9)
+    ax_heat.set_xlabel("Genomic position", fontsize=13)
 
     for pos in np.where(np.diff(chrom_info.astype(int)))[0]:
         ax_heat.axvline(x=pos, color="gray", linewidth=0.3, alpha=0.5)
@@ -801,7 +814,6 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
     )
     ax_chr.set_xticks([])
     ax_chr.set_yticks([])
-    ax_chr.set_ylabel("Chr", fontsize=7)
     _add_chr_labels(ax_chr, chrom_info)
 
     # ── 7. Annotation sidebars ────────────────────────────────────────────
@@ -818,7 +830,7 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
         ax_top.axis("off")
         ax_top.text(
             0.5, 0.02, col,
-            ha="center", va="bottom", fontsize=6.5, rotation=90,
+            ha="center", va="bottom", fontsize=10, rotation=90,
             transform=ax_top.transAxes,
         )
 
@@ -830,14 +842,14 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
         y_mid = (group_boundaries[i] + group_boundaries[i + 1]) / 2.0
         ax_grp.text(
             0.98, y_mid, str(grp),
-            ha="right", va="center", fontsize=6.5,
+            ha="right", va="center", fontsize=10,
         )
 
     # ── 9. Colour bar ─────────────────────────────────────────────────────
     ax_cbar = fig.add_subplot(gs[1, col_cbar])
     cbar = fig.colorbar(im, cax=ax_cbar, orientation="vertical")
-    cbar.set_label("Relative CNA", fontsize=7)
-    cbar.ax.tick_params(labelsize=6)
+    cbar.set_label("Relative CNA", fontsize=11)
+    cbar.ax.tick_params(labelsize=10)
 
     # ── 10. Categorical legend ────────────────────────────────────────────
     from matplotlib.patches import Patch
@@ -854,7 +866,7 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
             ))
     ax_leg.legend(
         handles=patches, loc="upper left",
-        bbox_to_anchor=(0.0, 1.0), fontsize=6,
+        bbox_to_anchor=(0.25, 1.0), fontsize=10,
         frameon=True, fancybox=False, edgecolor="gray",
         handlelength=1.0, handleheight=0.8,
         borderaxespad=0, labelspacing=0.2,
@@ -865,7 +877,7 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
         ax_e = fig.add_subplot(gs[0, c])
         ax_e.axis("off")
 
-    fig.suptitle(f"{sample_name}  |  {n_cells} cells", fontsize=11, y=1.005)
+    fig.suptitle(f"{sample_name}  |  {n_cells} cells", fontsize=15, y=1.005)
 
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
