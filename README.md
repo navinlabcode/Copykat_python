@@ -1,23 +1,25 @@
 # CopyKAT-Python
 
-CopyKAT-Python is a Python reimplementation of the [CopyKAT](https://github.com/navinlabcode/copykat) workflow for inferring large-scale copy number alterations (CNAs) from single-cell RNA-seq data. It is designed to reproduce the core CopyKAT strategy while improving scalability, usability, and integration with modern `AnnData`/`Scanpy` pipelines.
+CopyKAT-Python is a Python reimplementation of the [CopyKAT](https://github.com/navinlabcode/copykat) workflow for inferring large-scale copy number alterations (CNAs) from single-cell RNA-seq data. It reproduces the core CopyKAT strategy while improving scalability, usability, and integration with modern `AnnData`/`Scanpy` pipelines.
 
 **Highlights:**
-- Handles datasets from thousands to hundreds of thousands of cells with significantly faster speed
+
 - Identical core parameters as CopyKAT-R with convenient Python improvements
+- Handles datasets from thousands to hundreds of thousands of cells with significantly faster speed
+- Annotated CNA heatmaps with per-cell metadata sidebars (cell type, cluster labels, etc.)
 - Pre-built Singularity container for reproducible deployment
-- Validated across 16 human and mouse 10X datasets and a 170k-cell Xenium dataset
+- Validated across 16 human and mouse 10X datasets and a 170k-cell Xenium whole-transcript dataset
 
 ---
 
 ## Why CopyKAT-Python?
 
-The original CopyKAT-R package is widely used for distinguishing aneuploid tumor cells from diploid normal cells using scRNA-seq data. However, users have reported practical limitations when applying it to large modern datasets. Recurring issues include:
+The original CopyKAT-R package is widely used for distinguishing aneuploid tumor cells from diploid normal cells using scRNA-seq data. Recurring practical limitations include:
 
 - Long runtimes, with reports of >1 hour for ~8,000 cells
 - Inability to handle very large datasets (hundreds of thousands to millions of cells) due to hierarchical clustering limits
 
-CopyKAT-Python is not a line-by-line clone of CopyKAT-R. It is an independent Python reimplementation focused on scalability and usability, while faithfully reproducing the core CopyKAT analytical strategy.
+CopyKAT-Python is an independent reimplementation focused on scalability and usability, while faithfully reproducing the core CopyKAT analytical strategy.
 
 ---
 
@@ -35,31 +37,21 @@ pip install -e .
 
 **From `environment.yml` with conda:**
 
-Creates a fresh conda environment for `copykat-py` and installs all required packages first
+Creates a fresh conda environment for `copykat-py` with all required packages
 
 ```bash
 git clone https://github.com/navinlabcode/Copykat_python.git
 cd Copykat_python
 conda env create -f environment.yml
 conda activate copykit_py
-```
 
-After installed the required packages and then installs
-`copykat-py` itself in editable mode through:
-
-```yaml
-pip:
-  - -e .
-```
-
-After activation, you can confirm the commands are available with:
-
-```bash
+## After activation, confirm the commands are available
 copykat_matrix --help
 copykat_anndata --help
 ```
 
 **Singularity container** (recommended for HPC environments):
+
 ```bash
 wget https://github.com/navinlabcode/Copykat_python/releases/download/v1.0.0/copykat_py.sif
 singularity exec copykat_py.sif copykat-py --help
@@ -69,30 +61,18 @@ singularity exec copykat_py.sif copykat-py --help
 
 ## How to Run
 
-CopyKAT-Python shares identical parameters with CopyKAT-R, with a few convenient additions.
+CopyKAT-Python supports two main entry points:
+
+| Entry point | When to use |
+| --- | --- |
+| `copykat_matrix` / `copykat-py` | Input is a `.csv`, `.tsv`, or `.mtx` matrix file on disk in linux |
+| `copykat_anndata()` | Input is an already-loaded `AnnData` object in python|
 
 <img width="956" height="508" alt="image" src="https://github.com/user-attachments/assets/144da3e7-d856-4f75-91fa-e89883e98213" />
 
-### Choose the right entry point
+### Terminal — `copykat_matrix` / `copykat-py`
 
-CopyKAT-Python supports two main analysis workflows:
-
-- `copykat_matrix` / `copykat-py`: matrix-first workflow for count matrix exported from R and 10X pipeline outputs
-- `copykat_anndata()`: Python AnnData workflow for an already loaded in-memory `AnnData` object
-
-If you are starting a new workflow:
-
-- use `copykat_matrix`/ `copykat-py` when your input is a matrix file such as `.csv`, `.tsv`, or `.mtx`
-- use the Python AnnData API when your input is already an `AnnData` object
-- use the Python API when you are already working inside a notebook or script
-
-### Terminal command — `copykat_matrix` / `copykat-py`
-
-Use this workflow when you want to run directly from a raw count matrix on disk.
-This is the most natural entry point for Cell Ranger, Seurat-exported matrices,
-and other R-style preprocessing workflows.
-
-**Example: CSV or TSV matrix**
+**CSV or TSV matrix:**
 
 ```bash
 copykat_matrix \
@@ -103,7 +83,7 @@ copykat_matrix \
     --output-dir results/sample1
 ```
 
-**Example: 10X matrix market input**
+**10X matrix market input:**
 
 ```bash
 copykat_matrix \
@@ -116,24 +96,9 @@ copykat_matrix \
     --output-dir results/sample1
 ```
 
-**Example: matrix input with metadata for annotated heatmaps**
+Pass `--meta` (and optionally `--row-split`) to produce an annotated heatmap alongside the standard output. See [Annotated Heatmap with Metadata](#annotated-heatmap-with-metadata).
 
-```bash
-copykat_matrix \
-    --input sample_counts.csv \
-    --meta sample_metadata.csv \
-    --row-split CellType \
-    --sample-name sample1 \
-    --genome hg20 \
-    --n-cores 24 \
-    --output-dir results/sample1
-```
-
-If you use metadata annotations, `copykat_matrix` is the recommended command.
-
-### Python API — matrix input via `copykat()`
-
-Use this when the count matrix is already loaded in Python.
+### Python API — `copykat()`
 
 ```python
 import pandas as pd
@@ -153,18 +118,9 @@ result = copykat(
 print(result["prediction"].head())
 ```
 
-You can also pass a `rawmat` dictionary with:
+`rawmat` can also be a dict with keys `matrix`, `genes`, and `barcodes` for sparse matrices.
 
-- `matrix`: genes × cells matrix
-- `genes`: gene names
-- `barcodes`: cell names
-
-This is useful when you have already built a sparse matrix in memory.
-
-
-### Python API — AnnData input via `copykat_anndata()`
-
-Use this when the `AnnData` object is already loaded in memory.
+### Python API — `copykat_anndata()`
 
 ```python
 import anndata as ad
@@ -186,32 +142,74 @@ result = copykat_anndata(
 print(result["prediction"]["copykat.pred"].value_counts())
 ```
 
-This helper expects an already loaded `AnnData` object. The recommended pattern is:
-
-1. read the file yourself with `ad.read_h5ad(...)`
-2. inspect or subset the object as needed
-3. pass that in-memory object to `copykat_anndata(adata=...)`
-
-Useful AnnData-side options:
-
-- `layer`: use `adata.layers[...]` instead of `adata.X`
-- `use_raw`: use `adata.raw.X` and `adata.raw.var_names`
-- `selecting_meta`: export selected `adata.obs` columns for annotated heatmaps
-- `row_split`: which selected metadata column should define row groups
+Useful options: `layer` (use `adata.layers[...]`), `use_raw` (use `adata.raw`), `selecting_meta` (export obs columns for annotated heatmaps), `row_split` (column defining row groups).
 
 ### Output files
 
-All wrappers run the same core CopyKAT pipeline and produce the same main outputs:
+All entry points produce the same outputs as copykat-R:
 
 - `*_copykat_CNA_results.txt`
 - `*_copykat_prediction.txt`
 - `*_copykat_heatmap.png`
 - `copykat_run.log`
 
-When metadata is supplied for annotated heatmaps:
+When metadata is supplied, an additional annotated heatmap PNG is produced. AnnData workflows also write `*_selected_obs_meta.csv`.
 
-- matrix workflows use your provided metadata CSV
-- AnnData workflows also write an internal `*_selected_obs_meta.csv` file before plotting
+---
+
+## Annotated Heatmap with Metadata
+
+Produce a CNA heatmap with per-cell metadata annotations (cell type, cluster labels, etc.). Rows are split into labelled groups by a chosen metadata column and ordered by hierarchical or K-means clustering within each group.
+
+### CLI — standalone re-plot (`copykat-py-plot`)
+
+Re-plot from an existing CNA results file without re-running the full analysis:
+
+```bash
+copykat-py-plot \
+    --cna  sample_copykat_CNA_results.txt \
+    --meta xenium_ft_full_meta_celltype_leiden.csv \
+    --row-split inferred_CellType \
+    --sample-name xenium_all_cells \
+    --n-cores 40 \
+    --output xenium_annotated_heatmap.png
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--cna` / `-c` | *(required)* | `*_copykat_CNA_results.txt` from a copykat-py run |
+| `--meta` / `-m` | *(required)* | Annotation CSV — first column = cell name, rest = metadata |
+| `--row-split` | second column | Column used to split and label row groups |
+
+**Meta CSV format** — header row is auto-detected:
+
+```csv
+cell_name,leiden_cluster,inferred_CellType
+aaaajgij-1,5,lumhr
+aaaandia-1,5,lumhr
+...
+```
+
+Cells present in the CNA results but absent from the CSV are labelled `"unknown"` and shown in grey. All remaining metadata columns are drawn as coloured annotation sidebars.
+
+### Python API — `plot_heatmap_annotated`
+
+```python
+import pandas as pd
+from copykat_py.plotting import plot_heatmap_annotated
+
+cna = pd.read_csv("sample_copykat_CNA_results.txt", sep="\t")
+plot_heatmap_annotated(
+    mat           = cna.iloc[:, 3:].values.astype("float32"),
+    cell_names    = cna.columns[3:].tolist(),
+    chrom_info    = cna.iloc[:, 0].values,
+    meta_csv      = "xenium_ft_full_meta_celltype_leiden.csv",
+    row_split_col = "inferred_CellType",
+    sample_name   = "xenium_all_cells",
+    n_cores       = 40,
+    output_path   = "xenium_annotated_heatmap.png",
+)
+```
 
 ---
 
@@ -249,7 +247,6 @@ Both CopyKAT-R and CopyKAT-Python were tested on raw datasets (no QC filtering) 
 | [mouse_lung_nuclei_5k_3pv31](https://www.10xgenomics.com/datasets/5k-adult-mouse-lung-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard) | mouse | Adult lung nuclei | Universal 3' v3.1 | 7,788 |
 | [mouse_brain_gemx](https://www.10xgenomics.com/datasets/10k-Mouse-Neurons-3p-gemx) | mouse | E18 brain neurons | Universal 3' GEM-X | 12,441 |
 
-
 </details>
 
 
@@ -277,14 +274,12 @@ The full [FFPE Human Breast Cancer](https://www.10xgenomics.com/datasets/atera-w
 **Runtime Comparison**
 <img width="1014" height="677" alt="image" src="https://github.com/user-attachments/assets/f534aca8-2d7b-40c6-acb1-dafb1775e224" />
 
-**CNV Heatmap — Full Dataset (~170k cells)**
+**CNV Heatmap with Annotation**
 <img width="2601" height="1825" alt="xenium_all_cells_copykat_heatmap" src="https://github.com/user-attachments/assets/2d604c37-2959-4bfb-be0e-38f3999b14d4" />
 
 ---
 
 ## Interpreting Results
-
-CopyKAT-Python reports tumor/normal predictions alongside confidence-related outputs.
 
 **High-confidence results** typically show:
 - Clear chromosome-arm or whole-chromosome CNV patterns
@@ -296,106 +291,6 @@ CopyKAT-Python reports tumor/normal predictions alongside confidence-related out
 - Few normal reference cells
 - Strong batch effects
 - Near-diploid tumor genomes
-
----
-
-## Annotated Heatmap with Metadata
-
-After a CopyKAT-Py run you can re-plot the CNA heatmap with per-cell metadata
-annotations (cell type, cluster labels, etc.) using either the CLI or the
-Python API.  Rows are split into labelled groups by a chosen metadata column,
-and cells within each group are ordered by hierarchical or K-means clustering
-so intra-group CNA structure is preserved.
-
-### CLI — main `copykat-py` run
-
-Pass `--meta` (and optionally `--row-split`) to the standard `copykat-py`
-command.  The annotated heatmap is produced automatically after the main run,
-alongside the standard heatmap.
-
-```bash
-copykat-py \
-    --input  sample.csv \
-    --sample-name xenium_all_cells \
-    --n-cores 40 \
-    --meta xenium_ft_full_meta_celltype_leiden.csv \
-    --row-split inferred_CellType
-```
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--meta` | *(optional)* | Annotation CSV — first column = cell name, rest = metadata |
-| `--row-split` | second column | Column used to split and label row groups |
-
-### CLI — standalone `copykat-py-plot`
-
-For re-plotting from an existing CNA results file without re-running the
-full analysis:
-
-```bash
-copykat-py-plot \
-    --cna  sample_copykat_CNA_results.txt \
-    --meta xenium_ft_full_meta_celltype_leiden.csv \
-    --row-split inferred_CellType \
-    --sample-name xenium_all_cells \
-    --n-cores 40 \
-    --output xenium_annotated_heatmap.png
-```
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--cna` / `-c` | *(required)* | `*_copykat_CNA_results.txt` from a copykat-py run |
-| `--meta` / `-m` | *(required)* | Annotation CSV — first column = cell name, rest = metadata |
-| `--row-split` | second column | Column used to split and label row groups |
-| `--sample-name` | `""` | Figure title prefix and default filename stem |
-| `--distance` | `euclidean` | Distance metric: `euclidean`, `pearson`, or `spearman` |
-| `--n-cores` | `1` | Parallel threads for clustering |
-| `--output` / `-o` | auto | PNG output path |
-
-**Meta CSV format** — header row is auto-detected:
-
-```csv
-cell_name,leiden_cluster,inferred_CellType
-aaaajgij-1,5,lumhr
-aaaandia-1,5,lumhr
-...
-```
-
-Cells present in the CNA results but absent from the CSV are labelled
-`"unknown"` and shown in grey.  All remaining metadata columns are drawn as
-coloured annotation sidebars.
-
-### Python API — `plot_heatmap_annotated`
-
-```python
-import pandas as pd
-import numpy as np
-from copykat_py.plotting import plot_heatmap_annotated
-
-cna = pd.read_csv("sample_copykat_CNA_results.txt", sep="\t")
-plot_heatmap_annotated(
-    mat        = cna.iloc[:, 3:].values.astype("float32"),  # bins × cells
-    cell_names = cna.columns[3:].tolist(),
-    chrom_info = cna.iloc[:, 0].values,
-    meta_csv   = "xenium_ft_full_meta_celltype_leiden.csv",
-    row_split_col = "inferred_CellType",   # None → auto-picks second column
-    sample_name   = "xenium_all_cells",
-    n_cores       = 40,
-    output_path   = "xenium_annotated_heatmap.png",
-)
-```
-
-**Layout produced:**
-
-```text
-[cell-type labels] | [sidebar col 1] | [sidebar col 2] | [heatmap] | [colorbar] | [legend]
-```
-
-- Each metadata column gets a narrow coloured sidebar (tab10/tab20 palette,
-  auto-assigned)
-- White horizontal lines separate row groups
-- Within-group ordering: Ward linkage for ≤ 3 000 cells, K-means block
-  ordering for larger groups
 
 ---
 
