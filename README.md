@@ -68,7 +68,7 @@ CopyKAT-Python supports two main entry points:
 | `copykat_matrix` / `copykat-py` | Input is a `.csv`, `.tsv`, or `.mtx` matrix file on disk in linux |
 | `copykat_anndata()` | Input is an already-loaded `AnnData` object in python|
 
-<img width="956" height="508" alt="image" src="https://github.com/user-attachments/assets/144da3e7-d856-4f75-91fa-e89883e98213" />
+<img width="1183" height="566" alt="image" src="https://github.com/user-attachments/assets/2e8b1ae0-ef1c-4cc1-9e3d-f8cf6f9a88b5" />
 
 ### Terminal — `copykat_matrix` / `copykat-py`
 
@@ -275,7 +275,14 @@ The full [FFPE Human Breast Cancer](https://www.10xgenomics.com/datasets/atera-w
 <img width="1014" height="677" alt="image" src="https://github.com/user-attachments/assets/f534aca8-2d7b-40c6-acb1-dafb1775e224" />
 
 **CNV Heatmap with Annotation**
-<img width="2601" height="1825" alt="xenium_all_cells_copykat_heatmap" src="https://github.com/user-attachments/assets/2d604c37-2959-4bfb-be0e-38f3999b14d4" />
+
+<img width="1150" height="874" alt="image" src="https://github.com/user-attachments/assets/6fdd0ee4-2398-4723-886e-17e1ab49b703" />
+
+**CNV comparison**
+
+<img width="1152" height="288" alt="image" src="https://github.com/user-attachments/assets/37f5b5d2-c65b-471b-9473-0ca139216950" />
+
+<img width="864" height="432" alt="image" src="https://github.com/user-attachments/assets/cfc580f1-a477-4d21-8d0c-3482b2b6797f" />
 
 ---
 
