@@ -16,7 +16,7 @@ The original CopyKAT-R package is widely used for distinguishing aneuploid tumor
 - Annotated CNA heatmaps with per-cell metadata sidebars (cell type, cluster labels, etc.)
 - Pre-built Singularity container for reproducible deployment
 - Validated across 16 human and mouse 10X datasets and a 170k-cell Xenium whole-transcript dataset
-- 
+  
 ---
 
 ## Installation
