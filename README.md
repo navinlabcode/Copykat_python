@@ -2,6 +2,13 @@
 
 CopyKAT-Python is a Python reimplementation of the [CopyKAT](https://github.com/navinlabcode/copykat) workflow for inferring large-scale copy number alterations (CNAs) from single-cell RNA-seq data. It reproduces the core CopyKAT strategy while improving scalability, usability, and integration with modern `AnnData`/`Scanpy` pipelines.
 
+## Why CopyKAT-Python?
+
+The original CopyKAT-R package is widely used for distinguishing aneuploid tumor cells from diploid normal cells using scRNA-seq data. Recurring practical limitations include:
+
+- Long runtimes, with reports of >1 hour for ~8,000 cells
+- Inability to handle very large datasets (hundreds of thousands to millions of cells) due to hierarchical clustering limits
+  
 **Highlights:**
 
 - Identical core parameters as CopyKAT-R with convenient Python improvements
@@ -9,18 +16,7 @@ CopyKAT-Python is a Python reimplementation of the [CopyKAT](https://github.com/
 - Annotated CNA heatmaps with per-cell metadata sidebars (cell type, cluster labels, etc.)
 - Pre-built Singularity container for reproducible deployment
 - Validated across 16 human and mouse 10X datasets and a 170k-cell Xenium whole-transcript dataset
-
----
-
-## Why CopyKAT-Python?
-
-The original CopyKAT-R package is widely used for distinguishing aneuploid tumor cells from diploid normal cells using scRNA-seq data. Recurring practical limitations include:
-
-- Long runtimes, with reports of >1 hour for ~8,000 cells
-- Inability to handle very large datasets (hundreds of thousands to millions of cells) due to hierarchical clustering limits
-
-CopyKAT-Python is an independent reimplementation focused on scalability and usability, while faithfully reproducing the core CopyKAT analytical strategy.
-
+- 
 ---
 
 ## Installation
@@ -290,14 +286,7 @@ The copykat-py call was confirmed correct through the corresponding H&E cell mor
 The key difference is in the final prediction step (step 8), where both implementations perform hierarchical clustering on the adjusted CNA matrix and cut the tree at k=2. R's copykat explicitly uses method = "ward.D" in hclust(), while CopyKAT-Python uses scipy/fastcluster's "ward", which implements the mathematically correct ward.D2 criterion.
 For cells cluster (like  Seurat cluster 4 here,) with subtle CNV profiles that sit near the boundary of the diploid/aneuploid split, the two linkage variants produce different dendrogram topologies, causing the binary label assignment to flip. 
 
-
 CopyKAT-Python results may not be identical to CopyKAT-R due to differences in:
-
-- Gene annotation versions
-- Filtering and preprocessing steps
-- Numerical implementation details
-- Smoothing and segmentation algorithms
-- Clustering behavior (parDist + hcluster vs. PCA + fastcluster)
 
 **High-confidence results** typically show:
 - Clear chromosome-arm or whole-chromosome CNV patterns
@@ -309,3 +298,13 @@ CopyKAT-Python results may not be identical to CopyKAT-R due to differences in:
 - Few normal reference cells
 - Strong batch effects
 - Near-diploid tumor genomes
+
+
+**Disclaimer:** 
+CopyKAT-Python is an independent reimplementation focused on scalability and usability, while faithfully reproducing the core CopyKAT analytical strategy.
+
+- Gene annotation versions
+- Filtering and preprocessing steps
+- Numerical implementation details
+- Smoothing and segmentation algorithms
+- Clustering behavior (parDist + hcluster vs. PCA + fastcluster)
