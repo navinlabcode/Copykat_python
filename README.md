@@ -278,15 +278,26 @@ The full [FFPE Human Breast Cancer](https://www.10xgenomics.com/datasets/atera-w
 
 <img width="1150" height="874" alt="image" src="https://github.com/user-attachments/assets/6fdd0ee4-2398-4723-886e-17e1ab49b703" />
 
+
 **CNV comparison**
+<img width="1296" height="720" alt="image" src="https://github.com/user-attachments/assets/d21e99ce-2dcf-4d64-813f-2de59ef8641a" />
 
-<img width="1152" height="288" alt="image" src="https://github.com/user-attachments/assets/37f5b5d2-c65b-471b-9473-0ca139216950" />
+## Why Results May Differ from CopyKAT-R
 
-<img width="864" height="432" alt="image" src="https://github.com/user-attachments/assets/cfc580f1-a477-4d21-8d0c-3482b2b6797f" />
+From the above comparison of the final prediction, the Seurat cluster 4 was called diploid by CopyKAT-R but aneuploid by CopyKAT-Py.
+The copykat-py call was confirmed correct through the corresponding H&E cell morphology in this case. 
 
----
+The key difference is in the final prediction step (step 8), where both implementations perform hierarchical clustering on the adjusted CNA matrix and cut the tree at k=2. R's copykat explicitly uses method = "ward.D" in hclust(), while CopyKAT-Python uses scipy/fastcluster's "ward", which implements the mathematically correct ward.D2 criterion.
+For cells cluster (like  Seurat cluster 4 here,) with subtle CNV profiles that sit near the boundary of the diploid/aneuploid split, the two linkage variants produce different dendrogram topologies, causing the binary label assignment to flip. 
 
-## Interpreting Results
+
+CopyKAT-Python results may not be identical to CopyKAT-R due to differences in:
+
+- Gene annotation versions
+- Filtering and preprocessing steps
+- Numerical implementation details
+- Smoothing and segmentation algorithms
+- Clustering behavior (parDist + hcluster vs. PCA + fastcluster)
 
 **High-confidence results** typically show:
 - Clear chromosome-arm or whole-chromosome CNV patterns
@@ -298,15 +309,3 @@ The full [FFPE Human Breast Cancer](https://www.10xgenomics.com/datasets/atera-w
 - Few normal reference cells
 - Strong batch effects
 - Near-diploid tumor genomes
-
----
-
-## Why Results May Differ from CopyKAT-R
-
-CopyKAT-Python results may not be identical to CopyKAT-R due to differences in:
-
-- Gene annotation versions
-- Filtering and preprocessing steps
-- Numerical implementation details
-- Smoothing and segmentation algorithms
-- Clustering behavior (parDist + hcluster vs. PCA + fastcluster)
