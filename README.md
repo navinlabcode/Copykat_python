@@ -1,4 +1,4 @@
-# ------------------------------------ Under Internal Testing ------------------------------------ #
+# ------------ Under Internal Testing ------------ #
 
 # CopyKAT-Python
 
