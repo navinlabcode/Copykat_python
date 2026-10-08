@@ -9,8 +9,8 @@ The Kalman smoother produces smoothed state estimates.
 
 import numpy as np
 import os
-from joblib import Parallel, delayed
-from numba import jit
+import numba
+from numba import njit, prange
 
 _LAST_PAR_INFO = {
     "step": "dlm_smooth",
@@ -19,6 +19,7 @@ _LAST_PAR_INFO = {
     "effective_cores": 1,
     "tasks": 0,
     "chunk_size": 0,
+    "engine": "numba_shared_gains",
 }
 
 
@@ -26,67 +27,69 @@ def get_last_dlm_smooth_info():
     return dict(_LAST_PAR_INFO)
 
 
-@jit(nopython=True)
-def _dlm_smooth_single(y, dV=0.16, dW=0.001):
-    """Kalman filter + backward smoother for a single cell's gene expression vector.
-    
-    Parameters
-    ----------
-    y : np.ndarray, shape (n_genes,)
-        Normalized gene expression values.
-    dV : float
-        Observation variance.
-    dW : float
-        State evolution variance.
-    
+def _dlm_gains(n, dV=0.16, dW=0.001):
+    """Kalman filter and RTS smoother gains for the local level model.
+
+    For a time-invariant model with a fixed prior, the gains depend only on
+    (n, dV, dW) and never on the observations, so they are identical for every
+    cell and can be computed once.
+
     Returns
     -------
-    np.ndarray, shape (n_genes,)
-        Smoothed and centered expression values.
+    K : np.ndarray, shape (n,)
+        Filter gains: m_{t+1} = m_t + K_t * (y_t - m_t).
+    B : np.ndarray, shape (n,)
+        Smoother gains: s_t = m_t + B_t * (s_{t+1} - m_t).
     """
-    n = len(y)
-    
-    # Forward Kalman filter
-    # Initialize: diffuse prior
-    m = np.zeros(n + 1)  # filtered state means
-    C = np.zeros(n + 1)  # filtered state variances
-    m[0] = 0.0
+    C = np.empty(n + 1)  # filtered state variances
+    R = np.empty(n)  # prior state variances
+    K = np.empty(n)
     C[0] = 1e7  # diffuse prior
-    
-    a = np.zeros(n)  # prior state means
-    R = np.zeros(n)  # prior state variances
-    
     for t in range(n):
-        # Predict
-        a[t] = m[t]
         R[t] = C[t] + dW
-        
-        # Update
-        f = a[t]  # forecast mean (F=1)
-        Q = R[t] + dV  # forecast variance
-        e = y[t] - f  # forecast error
-        K = R[t] / Q  # Kalman gain
-        
-        m[t + 1] = a[t] + K * e
-        C[t + 1] = R[t] * (1 - K)
-    
-    # Backward smoother (Rauch-Tung-Striebel)
-    # R's dlm convention: B_t = C_t / R_{t+1}, s_t = m_t + B_t*(s_{t+1} - a_{t+1})
-    # In our indexing: my R[t] = R's R_{t+1}, my C[t] = R's C_t, my m[t] = R's m_t
-    s = np.zeros(n + 1)  # smoothed state means
-    S = np.zeros(n + 1)  # smoothed state variances
-    s[n] = m[n]
-    S[n] = C[n]
-    
-    for t in range(n - 1, -1, -1):
-        B = C[t] / R[t] if R[t] > 0 else 0  # smoother gain
-        s[t] = m[t] + B * (s[t + 1] - m[t])
-        S[t] = C[t] + B * B * (S[t + 1] - R[t])
-    
-    # Return smoothed states (skip s[0] which is the prior)
-    smoothed = s[1:]
-    smoothed = smoothed - np.mean(smoothed)
-    return smoothed
+        Q = R[t] + dV  # forecast variance (F=1)
+        K[t] = R[t] / Q
+        C[t + 1] = R[t] * (1 - K[t])
+    # R's dlm convention: B_t = C_t / R_{t+1}; in our indexing R[t] is R's R_{t+1}
+    B = np.zeros(n)
+    np.divide(C[:-1], R, out=B, where=R > 0)
+    return K, B
+
+
+_BLOCK_CELLS = 64
+
+
+@njit(parallel=True)
+def _dlm_smooth_blocks(y, K, B, out):
+    """Apply the shared filter/smoother gains to every column of ``y``.
+
+    Columns are processed in blocks of ``_BLOCK_CELLS`` so the inner loop walks
+    contiguous memory; blocks run in parallel threads.
+    """
+    n, n_cells = y.shape
+    n_blocks = (n_cells + _BLOCK_CELLS - 1) // _BLOCK_CELLS
+    for b in prange(n_blocks):
+        c0 = b * _BLOCK_CELLS
+        w = min(c0 + _BLOCK_CELLS, n_cells) - c0
+        m = np.empty((n + 1, w))  # filtered means, then smoothed means in place
+        for j in range(w):
+            m[0, j] = 0.0
+        # Forward Kalman filter
+        for t in range(n):
+            for j in range(w):
+                m[t + 1, j] = m[t, j] + K[t] * (y[t, c0 + j] - m[t, j])
+        # Backward smoother (Rauch-Tung-Striebel); m[n] is already s[n]
+        for t in range(n - 1, -1, -1):
+            for j in range(w):
+                m[t, j] = m[t, j] + B[t] * (m[t + 1, j] - m[t, j])
+        # Return smoothed states (skip s[0] which is the prior), centered
+        for j in range(w):
+            total = 0.0
+            for t in range(1, n + 1):
+                total += m[t, j]
+            mean = total / n
+            for t in range(n):
+                out[t, c0 + j] = m[t + 1, j] - mean
 
 
 def dlm_smooth(norm_mat, n_cores=1):
@@ -97,33 +100,33 @@ def dlm_smooth(norm_mat, n_cores=1):
     norm_mat : np.ndarray, shape (n_genes, n_cells)
         Normalized gene expression matrix.
     n_cores : int
-        Number of parallel workers.
+        Number of parallel threads.
     
     Returns
     -------
     np.ndarray, shape (n_genes, n_cells)
         Smoothed expression matrix (float32).
     """
-    n_cells = norm_mat.shape[1]
+    n_genes, n_cells = norm_mat.shape
     max_cores = int(os.getenv("COPYKAT_MAX_CORES", str(os.cpu_count() or 1)))
-    n_jobs = max(1, min(int(n_cores), max_cores, n_cells))
-    
-    # Adaptive chunk size: larger chunks for better parallelization efficiency
-    chunk_size = max(1, min(n_cells // n_jobs, max(4, n_cells // (n_jobs * 2))))
+    n_blocks = -(-n_cells // _BLOCK_CELLS)
+    n_jobs = max(1, min(int(n_cores), max_cores, n_blocks, numba.config.NUMBA_NUM_THREADS))
     _LAST_PAR_INFO.update({
         "parallel": n_jobs > 1,
         "requested_cores": int(n_cores),
         "effective_cores": int(n_jobs),
         "tasks": int(n_cells),
-        "chunk_size": int(chunk_size),
+        "chunk_size": int(_BLOCK_CELLS),
+        "engine": "numba_shared_gains",
     })
 
-    def _smooth_chunk(start, end):
-        return np.column_stack([_dlm_smooth_single(norm_mat[:, c]) for c in range(start, end)])
-
-    ranges = [(s, min(s + chunk_size, n_cells)) for s in range(0, n_cells, chunk_size)]
-    chunks = Parallel(n_jobs=n_jobs, prefer="processes")(
-        delayed(_smooth_chunk)(s, e) for s, e in ranges
-    )
-    smoothed = np.hstack(chunks).astype(np.float32, copy=False)
+    K, B = _dlm_gains(n_genes)
+    y = np.asarray(norm_mat, dtype=np.float64)
+    smoothed = np.empty((n_genes, n_cells), dtype=np.float32)
+    previous_threads = numba.get_num_threads()
+    numba.set_num_threads(n_jobs)
+    try:
+        _dlm_smooth_blocks(y, K, B, smoothed)
+    finally:
+        numba.set_num_threads(previous_threads)
     return smoothed
