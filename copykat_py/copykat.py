@@ -577,6 +577,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
                     n_cores=n_cores,
                     pca_components=selected_pca_components,
                     genome=genome,
+                    cluster=False,  # only basel/preN are used; CL stays from clustering
                 )
                 # baseline_gmm anchors on a handful of individually-scanned
                 # cells (it stops at the first `max_normal` hits in raw cell
