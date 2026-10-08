@@ -22,13 +22,8 @@ from scipy import sparse
 from scipy.spatial.distance import pdist
 from scipy.cluster.hierarchy import linkage, fcluster
 import pickle
-
-try:
-    import pyarrow as pa
-    import pyarrow.csv as pa_csv
-    HAS_PYARROW = True
-except ImportError:
-    HAS_PYARROW = False
+import pyarrow as pa
+import pyarrow.csv as pa_csv
 
 from copykat_py.annotation import annotate_genes
 from copykat_py.smoothing import dlm_smooth, get_last_dlm_smooth_info
@@ -55,22 +50,12 @@ from copykat_py.convert_bins import convert_to_bins, get_last_convert_bins_info
 from copykat_py.data_loader import load_cyclegenes
 
 
-def _write_cna_csv(df, path, float_fmt="%.6f"):
-    """Write CNA DataFrame as TSV using pyarrow (fast) with 6 d.p. float precision.
-
-    Falls back to pandas .to_csv() when pyarrow is not available.
-    """
-    if HAS_PYARROW:
-        anno_cols = [c for c in df.columns if not pd.api.types.is_float_dtype(df[c])]
-        float_cols = [c for c in df.columns if c not in anno_cols]
-        rounded = df.copy()
-        if float_cols:
-            rounded[float_cols] = rounded[float_cols].round(6)
-        table = pa.Table.from_pandas(rounded, preserve_index=False)
-        with open(path, "wb") as f:
-            pa_csv.write_csv(table, f, write_options=pa_csv.WriteOptions(delimiter="\t"))
-    else:
-        df.to_csv(path, sep="\t", index=False, float_format=float_fmt)
+def _write_cna_csv(df, path):
+    """Write CNA DataFrame as unquoted TSV using pyarrow."""
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    with open(path, "wb") as f:
+        pa_csv.write_csv(table, f, write_options=pa_csv.WriteOptions(
+            delimiter="\t", quoting_style="none", quoting_header="none"))
 
 
 def _meta_with_pred(meta_csv, pred_dict, sample_name):
@@ -701,7 +686,7 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
     RNA_copycat = pd.concat([RNA_copycat.reset_index(drop=True), cna_df], axis=1)
     
     step_start = time.perf_counter()
-    RNA_copycat.to_csv(f"{sample_name}CNA_raw_results_gene_by_cell.txt", sep="\t", index=False)
+    _write_cna_csv(RNA_copycat, f"{sample_name}CNA_raw_results_gene_by_cell.txt")
     _record_step(runtime_info, "write_gene_level_output", step_start, extra={"rows": int(RNA_copycat.shape[0]), "cols": int(RNA_copycat.shape[1])})
     
     # =========================================================================
@@ -857,7 +842,8 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         # Save CNA results
         cna_out = Aj["RNA_adj"].copy()
         cna_out.iloc[:, 3:] = mat_adj
-        _write_cna_csv(cna_out, f"{sample_name}CNA_results.txt")
+        # Rounded to 6 d.p.; the gene-level file above keeps full precision.
+        _write_cna_csv(cna_out.round(6), f"{sample_name}CNA_results.txt")
         
         # Save clustering
         clustering_data = {"labels": labels_final if cell_line != "yes" else labels,
@@ -1049,7 +1035,8 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         
         cna_df = pd.DataFrame(mat_adj, columns=cell_cols_seg)
         cna_out = pd.concat([anno_mat2[anno_cols].reset_index(drop=True), cna_df], axis=1)
-        _write_cna_csv(cna_out, f"{sample_name}CNA_results.txt")
+        # Rounded to 6 d.p.; the gene-level file above keeps full precision.
+        _write_cna_csv(cna_out.round(6), f"{sample_name}CNA_results.txt")
         
         clustering_data = {"labels": labels_final, "Z": Z_final}
         with open(f"{sample_name}clustering_results.pkl", "wb") as f:
