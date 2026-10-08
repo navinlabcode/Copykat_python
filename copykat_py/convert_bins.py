@@ -134,8 +134,10 @@ def convert_to_bins(RNA_mat, genome="hg20", n_cores=1):
     def _process_chunk(start, end):
         return [_process_bin(i) for i in range(start, end)]
 
+    # Threads share RNA_values; a process pool would pickle the whole matrix
+    # into every task through the closure.
     ranges = [(s, min(s + chunk_size, n_bins)) for s in range(0, n_bins, chunk_size)]
-    chunk_results = Parallel(n_jobs=n_jobs, prefer="processes")(
+    chunk_results = Parallel(n_jobs=n_jobs, prefer="threads")(
         delayed(_process_chunk)(s, e) for s, e in ranges
     )
     results = [r for chunk in chunk_results for r in chunk]

@@ -310,17 +310,19 @@ def baseline_norm_cl(norm_mat_smooth, min_cells=5, n_cores=1, cell_names=None, p
     SSD = []
     unique_clusters = sorted(set(labels))
     
-    def fit_gmm_for_cluster(cl_id):
-        """Fit GMM for a single cluster (for parallel execution)."""
-        mask = labels == cl_id
-        cluster_consensus = np.median(norm_mat_smooth[:, mask], axis=1)
+    def fit_gmm_for_consensus(cluster_consensus):
+        """Fit GMM for a single cluster consensus (for parallel execution)."""
         sx = max(0.05, 0.5 * np.std(cluster_consensus))
         means, weights, sigma = _fit_gmm_3component(cluster_consensus, sigma_init=sx, max_iter=5000)
         return sigma, np.std(cluster_consensus)
     
-    # Parallel GMM fitting
-    results = Parallel(n_jobs=n_cores)(
-        delayed(fit_gmm_for_cluster)(cl_id) for cl_id in unique_clusters
+    # Parallel GMM fitting. Consensus profiles are computed up front and fitted
+    # in threads so workers never receive a copy of the full matrix.
+    consensus_profiles = [
+        np.median(norm_mat_smooth[:, labels == cl_id], axis=1) for cl_id in unique_clusters
+    ]
+    results = Parallel(n_jobs=n_cores, prefer="threads")(
+        delayed(fit_gmm_for_consensus)(consensus) for consensus in consensus_profiles
     )
     
     SDM = np.array([r[0] for r in results])
