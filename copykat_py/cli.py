@@ -470,7 +470,7 @@ def main():
     parser = _build_main_parser()
     args = parser.parse_args()
     rawmat = _load_matrix_input(args.input, args.genes, args.barcodes)
-    return _run_copykat_analysis(
+    _run_copykat_analysis(
         args,
         rawmat,
         meta_csv=None,
@@ -485,7 +485,7 @@ def matrix_main():
     parser = _build_matrix_parser()
     args = parser.parse_args()
     rawmat = _load_matrix_input(args.input, args.genes, args.barcodes)
-    return _run_copykat_analysis(
+    _run_copykat_analysis(
         args,
         rawmat,
         meta_csv=args.meta,
