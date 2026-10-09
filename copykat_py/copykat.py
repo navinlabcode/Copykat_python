@@ -498,7 +498,8 @@ def copykat(rawmat, id_type="S", cell_line="no", ngene_chr=5, min_gene_per_cell=
         preN = None
     elif isinstance(norm_cell_names, list) and len(norm_cell_names) > 1:
         # Known normal cells provided
-        known_normal_mask = np.array([c in norm_cell_names for c in cell_name_list])
+        norm_cell_set = set(norm_cell_names)
+        known_normal_mask = np.array([c in norm_cell_set for c in cell_name_list], dtype=bool)
         NNN = known_normal_mask.sum()
         print(f"  {NNN} known normal cells found in dataset")
         
