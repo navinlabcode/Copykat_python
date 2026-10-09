@@ -469,8 +469,14 @@ def plot_heatmap(mat, chrom_info, predictions=None, sample_name="",
     cmap = plt.cm.RdBu_r
     norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
 
+    # interpolation_stage="data" samples the data down to screen resolution
+    # before norm + colormap (matplotlib's default before 3.10) instead of
+    # colormapping every cell x bin value first ("auto" picks "rgba" when
+    # downsampling). With nearest-neighbour interpolation both pick the same
+    # source values and norm/colormap are per-pixel, so the image is the same,
+    # at a fraction of the time and memory.
     im = ax_heat.imshow(mat_ordered.T, aspect="auto", cmap=cmap, norm=norm,
-                        interpolation="nearest")
+                        interpolation="nearest", interpolation_stage="data")
     ax_heat.set_xlabel("Genomic position")
     ax_heat.set_yticks([])
     title_parts = [p for p in (WNS1, WNS) if p]
@@ -795,7 +801,7 @@ def plot_heatmap_annotated(mat, cell_names, chrom_info, meta_csv,
     im = ax_heat.imshow(
         mat_ordered.T, aspect="auto",
         cmap=plt.cm.RdBu_r, norm=norm,
-        interpolation="nearest",
+        interpolation="nearest", interpolation_stage="data",  # see plot_heatmap
     )
     ax_heat.set_xticks([])
     ax_heat.set_yticks([])
